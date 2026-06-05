@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useDisplayLocale } from '@/hooks/use-display-locale'
 import { useQuery } from '@tanstack/react-query'
@@ -1053,6 +1053,29 @@ function CategorySpendingReport({
   const periods = useMemo(() => data?.periods ?? [], [data?.periods])
   const displayedPeriods = useMemo(() => [...periods].reverse(), [periods])
   const rows = data?.rows ?? []
+  const tableWidth = useMemo(
+    () => Math.max(760, 240 + 116 + displayedPeriods.length * 140),
+    [displayedPeriods.length]
+  )
+  const topScrollRef = useRef<HTMLDivElement>(null)
+  const headerScrollRef = useRef<HTMLDivElement>(null)
+  const tableScrollRef = useRef<HTMLDivElement>(null)
+  const syncingScroll = useRef(false)
+
+  const syncScroll = (source: 'top' | 'table') => {
+    if (syncingScroll.current) return
+    const from = source === 'top' ? topScrollRef.current : tableScrollRef.current
+    if (!from) return
+    syncingScroll.current = true
+    for (const target of [topScrollRef.current, headerScrollRef.current, tableScrollRef.current]) {
+      if (target && target !== from) {
+        target.scrollLeft = from.scrollLeft
+      }
+    }
+    requestAnimationFrame(() => {
+      syncingScroll.current = false
+    })
+  }
 
   const monthEnd = (exclusiveEnd: string) => {
     const [year, month, day] = exclusiveEnd.split('-').map(Number)
@@ -1077,21 +1100,61 @@ function CategorySpendingReport({
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] border-separate border-spacing-0 text-sm">
-          <thead>
-            <tr className="bg-muted/30 text-[11px] uppercase text-muted-foreground">
-              <th className="sticky left-0 z-20 w-[240px] bg-muted/95 px-4 py-3 text-left font-semibold">
-                {t('reports.category')}
-              </th>
-              <th className="w-[116px] px-3 py-3 text-right font-semibold">{t('reports.average')}</th>
+      <div className="sticky top-0 z-40 bg-card shadow-sm">
+        <div
+          ref={topScrollRef}
+          onScroll={() => syncScroll('top')}
+          className="h-6 overflow-x-auto border-b border-border bg-card"
+          aria-label={t('reports.horizontalScroll')}
+        >
+          <div style={{ width: tableWidth, height: 1 }} />
+        </div>
+
+        <div ref={headerScrollRef} className="overflow-hidden border-b border-border">
+          <table
+            className="w-full table-fixed border-separate border-spacing-0 text-sm"
+            style={{ minWidth: tableWidth }}
+          >
+            <colgroup>
+              <col style={{ width: 240 }} />
+              <col style={{ width: 116 }} />
               {displayedPeriods.map((period) => (
-                <th key={period.key} className="w-[140px] px-3 py-3 text-right font-semibold">
-                  {period.label}
-                </th>
+                <col key={period.key} style={{ width: 140 }} />
               ))}
-            </tr>
-          </thead>
+            </colgroup>
+            <thead>
+              <tr className="bg-muted text-[11px] uppercase text-muted-foreground">
+                <th className="sticky left-0 z-20 w-[240px] bg-muted px-4 py-3 text-left font-semibold">
+                  {t('reports.category')}
+                </th>
+                <th className="w-[116px] bg-muted px-3 py-3 text-right font-semibold">{t('reports.average')}</th>
+                {displayedPeriods.map((period) => (
+                  <th key={period.key} className="w-[140px] bg-muted px-3 py-3 text-right font-semibold">
+                    {period.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+          </table>
+        </div>
+      </div>
+
+      <div
+        ref={tableScrollRef}
+        onScroll={() => syncScroll('table')}
+        className="overflow-x-auto"
+      >
+        <table
+          className="w-full table-fixed border-separate border-spacing-0 text-sm"
+          style={{ minWidth: tableWidth }}
+        >
+          <colgroup>
+            <col style={{ width: 240 }} />
+            <col style={{ width: 116 }} />
+            {displayedPeriods.map((period) => (
+              <col key={period.key} style={{ width: 140 }} />
+            ))}
+          </colgroup>
           <tbody>
             {isLoading ? (
               Array.from({ length: 6 }).map((_, idx) => (
