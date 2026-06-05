@@ -983,7 +983,22 @@
     "forecastBaseline": "Forecast with estimate",
     "includeEstimate": "Include estimate",
     "includeEstimateHelp": "Estimates future inflows and outflows from your history average (up to 12 months, or all available data), instead of using your recurring rules",
-    "baseline": "Estimate"
+    "baseline": "Estimate",
+    "categorySpending": "Category Spending",
+    "searchCategory": "Search categories...",
+    "budgetVariance": "Budget variance",
+    "sortLatest": "Latest spend",
+    "sortTotal": "Total spend",
+    "sortOverBudget": "Largest over budget",
+    "sortName": "Category name",
+    "category": "Category",
+    "total": "Total",
+    "average": "Average",
+    "drillDownCategory": "{{category}} — {{month}}",
+    "noBudget": "No budget",
+    "overBudget": "up",
+    "underBudget": "down",
+    "onBudget": "="
   },
   "payees": {
     "title": "Payees",

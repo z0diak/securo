@@ -644,6 +644,49 @@ export interface CategoryTrendItem {
   series: ReportDataPoint[]
 }
 
+export interface CategorySpendingPeriod {
+  key: string
+  label: string
+  start: string
+  end: string
+}
+
+export interface CategorySpendingPeriodValue {
+  actual_amount: number
+  budget_amount: number | null
+  variance_amount: number | null
+  variance_percent: number | null
+  percentage_used: number | null
+  status: 'no_budget' | 'under' | 'over' | 'on_budget'
+  is_recurring_budget: boolean
+}
+
+export interface CategorySpendingRow {
+  category_id: string
+  category_name: string
+  category_icon: string
+  category_color: string
+  group_id: string | null
+  group_name: string | null
+  total_amount: number
+  average_amount: number
+  latest_amount: number
+  trend_amount: number
+  trend_percent: number | null
+  periods: Record<string, CategorySpendingPeriodValue>
+}
+
+export interface CategorySpendingMatrixResponse {
+  periods: CategorySpendingPeriod[]
+  rows: CategorySpendingRow[]
+  meta: {
+    currency: string
+    interval: string
+    type: string
+    period: 'ytd' | null
+  }
+}
+
 export interface Attachment {
   id: string
   transaction_id: string

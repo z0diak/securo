@@ -48,6 +48,51 @@ class CategoryTrendItem(BaseModel):
     series: list[ReportDataPoint]
 
 
+class CategorySpendingPeriod(BaseModel):
+    key: str
+    label: str
+    start: str
+    end: str
+
+
+class CategorySpendingPeriodValue(BaseModel):
+    actual_amount: float
+    budget_amount: float | None = None
+    variance_amount: float | None = None
+    variance_percent: float | None = None
+    percentage_used: float | None = None
+    status: str
+    is_recurring_budget: bool = False
+
+
+class CategorySpendingRow(BaseModel):
+    category_id: str
+    category_name: str
+    category_icon: str
+    category_color: str
+    group_id: str | None = None
+    group_name: str | None = None
+    total_amount: float
+    average_amount: float
+    latest_amount: float
+    trend_amount: float
+    trend_percent: float | None = None
+    periods: dict[str, CategorySpendingPeriodValue]
+
+
+class CategorySpendingMeta(BaseModel):
+    currency: str
+    interval: str
+    type: str
+    period: str | None = None
+
+
+class CategorySpendingMatrixResponse(BaseModel):
+    periods: list[CategorySpendingPeriod]
+    rows: list[CategorySpendingRow]
+    meta: CategorySpendingMeta
+
+
 class ReportResponse(BaseModel):
     summary: ReportSummary
     trend: list[ReportDataPoint]

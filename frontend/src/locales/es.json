@@ -981,7 +981,22 @@
     "forecastBaseline": "Pronóstico con estimación",
     "includeEstimate": "Incluir estimación",
     "includeEstimateHelp": "Estima entradas y salidas futuras a partir del promedio de tu historial (hasta 12 meses, o todos los datos disponibles), en lugar de usar tus reglas recurrentes",
-    "baseline": "Estimación"
+    "baseline": "Estimación",
+    "categorySpending": "Gasto por categoria",
+    "searchCategory": "Buscar categorias...",
+    "budgetVariance": "Variacion del presupuesto",
+    "sortLatest": "Gasto reciente",
+    "sortTotal": "Gasto total",
+    "sortOverBudget": "Mayor sobre presupuesto",
+    "sortName": "Nombre de categoria",
+    "category": "Categoria",
+    "total": "Total",
+    "average": "Promedio",
+    "drillDownCategory": "{{category}} — {{month}}",
+    "noBudget": "Sin presupuesto",
+    "overBudget": "arriba",
+    "underBudget": "abajo",
+    "onBudget": "="
   },
   "payees": {
     "title": "Beneficiarios",

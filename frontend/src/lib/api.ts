@@ -38,6 +38,7 @@ import type {
   MonthlyTrend,
   BalanceHistory,
   PaginatedTransactions,
+  CategorySpendingMatrixResponse,
   ReportResponse,
   Group,
   GroupKind,
@@ -941,6 +942,10 @@ export const reports = {
   },
   cashFlow: async (months = 6, interval = 'daily', baseline = false): Promise<ReportResponse> => {
     const { data } = await api.get('/reports/cash-flow', { params: { months, interval, baseline } })
+    return data
+  },
+  categorySpending: async (months = 12, interval = 'monthly', period?: 'ytd'): Promise<CategorySpendingMatrixResponse> => {
+    const { data } = await api.get('/reports/category-spending', { params: { months, interval, period, type: 'expenses' } })
     return data
   },
 }

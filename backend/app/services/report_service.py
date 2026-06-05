@@ -22,6 +22,11 @@ from app.services.admin_service import get_credit_card_accounting_mode
 from app.services.account_service import get_account_name
 from app.services.fx_rate_service import convert
 from app.schemas.report import (
+    CategorySpendingMatrixResponse,
+    CategorySpendingMeta,
+    CategorySpendingPeriod,
+    CategorySpendingPeriodValue,
+    CategorySpendingRow,
     CategoryTrendItem,
     ReportBreakdown,
     ReportCompositionItem,
@@ -108,6 +113,22 @@ def _format_date_label(d: date, interval: str) -> str:
     elif interval == "yearly":
         return str(d.year)
     return d.isoformat()
+
+
+def _month_periods(today: date, months: int, period: str | None = None) -> list[tuple[str, date, date]]:
+    """Monthly periods, newest first."""
+    current = date(today.year, today.month, 1)
+    if period == "ytd":
+        count = today.month
+    else:
+        count = months
+
+    periods: list[tuple[str, date, date]] = []
+    for idx in range(count):
+        start = _add_months(current, -idx)
+        end = _add_months(start, 1)
+        periods.append((_format_date_label(start, "monthly"), start, end))
+    return periods
 
 
 def _date_points(
@@ -874,6 +895,138 @@ async def get_income_expenses_report(
     return ReportResponse(
         summary=summary, trend=trend, meta=meta,
         composition=composition, category_trend=category_trend,
+    )
+
+
+async def get_category_spending_matrix(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
+    months: int = 12,
+    interval: str = "monthly",
+    currency: str = "USD",
+    period: str | None = None,
+    report_type: str = "expenses",
+) -> CategorySpendingMatrixResponse:
+    """Build monthly category spending matrix with budget variance."""
+    if interval != "monthly":
+        raise ValueError("Category spending report supports monthly interval only")
+    if report_type != "expenses":
+        raise ValueError("Category spending report supports expenses only")
+
+    from app.services.budget_service import get_budget_vs_actual
+
+    today = date.today()
+    user = await session.get(User, user_id)
+    primary_currency = user.primary_currency if user else currency or get_settings().default_currency
+    raw_periods = _month_periods(today, months, period)
+
+    periods = [
+        CategorySpendingPeriod(
+            key=key,
+            label=f"{calendar.month_name[start.month]} {start.year}",
+            start=start.isoformat(),
+            end=end.isoformat(),
+        )
+        for key, start, end in raw_periods
+    ]
+
+    rows_by_category: dict[str, dict] = {}
+
+    for period_info in periods:
+        month_start = date.fromisoformat(period_info.start)
+        comparisons = await get_budget_vs_actual(session, workspace_id, user_id, month_start)
+        for item in comparisons:
+            cat_id = str(item.category_id)
+            actual = round(float(item.actual_amount or 0), 2)
+            budget = (
+                round(float(item.budget_amount), 2)
+                if item.budget_amount is not None
+                else None
+            )
+            variance = round(actual - budget, 2) if budget is not None else None
+            variance_percent = (
+                round((variance / budget) * 100, 1)
+                if budget and variance is not None
+                else None
+            )
+            if budget is None:
+                status = "no_budget"
+            elif variance is None or abs(variance) < 0.005:
+                status = "on_budget"
+            elif variance > 0:
+                status = "over"
+            else:
+                status = "under"
+
+            if cat_id not in rows_by_category:
+                rows_by_category[cat_id] = {
+                    "category_id": cat_id,
+                    "category_name": item.category_name,
+                    "category_icon": item.category_icon,
+                    "category_color": item.category_color,
+                    "group_id": str(item.group_id) if item.group_id else None,
+                    "group_name": item.group_name,
+                    "periods": {},
+                }
+
+            rows_by_category[cat_id]["periods"][period_info.key] = CategorySpendingPeriodValue(
+                actual_amount=actual,
+                budget_amount=budget,
+                variance_amount=variance,
+                variance_percent=variance_percent,
+                percentage_used=item.percentage_used,
+                status=status,
+                is_recurring_budget=item.is_recurring,
+            )
+
+    rows: list[CategorySpendingRow] = []
+    period_keys = [p.key for p in periods]
+    for raw in rows_by_category.values():
+        values = [
+            raw["periods"].get(
+                key,
+                CategorySpendingPeriodValue(actual_amount=0, status="no_budget"),
+            )
+            for key in period_keys
+        ]
+        total = round(sum(value.actual_amount for value in values), 2)
+        average = round(total / len(period_keys), 2) if period_keys else 0.0
+        latest = values[0].actual_amount if values else 0.0
+        oldest = values[-1].actual_amount if values else 0.0
+        trend_amount = round(latest - oldest, 2)
+        trend_percent = (
+            round((trend_amount / oldest) * 100, 1)
+            if oldest != 0
+            else None
+        )
+
+        rows.append(CategorySpendingRow(
+            category_id=raw["category_id"],
+            category_name=raw["category_name"],
+            category_icon=raw["category_icon"],
+            category_color=raw["category_color"],
+            group_id=raw["group_id"],
+            group_name=raw["group_name"],
+            total_amount=total,
+            average_amount=average,
+            latest_amount=latest,
+            trend_amount=trend_amount,
+            trend_percent=trend_percent,
+            periods=raw["periods"],
+        ))
+
+    rows.sort(key=lambda row: row.latest_amount, reverse=True)
+
+    return CategorySpendingMatrixResponse(
+        periods=periods,
+        rows=rows,
+        meta=CategorySpendingMeta(
+            currency=primary_currency,
+            interval=interval,
+            type=report_type,
+            period=period,
+        ),
     )
 
 
