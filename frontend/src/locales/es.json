@@ -991,6 +991,7 @@
     "sortOverBudget": "Mayor sobre presupuesto",
     "sortName": "Nombre de categoria",
     "category": "Categoria",
+    "noGroup": "Sin grupo",
     "total": "Total",
     "average": "Promedio",
     "drillDownCategory": "{{category}} — {{month}}",

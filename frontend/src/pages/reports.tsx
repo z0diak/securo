@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { Fragment, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useDisplayLocale } from '@/hooks/use-display-locale'
 import { useQuery } from '@tanstack/react-query'
@@ -27,7 +27,7 @@ import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 import { CategoryIcon } from '@/components/category-icon'
 import { TransactionDrillDown, type DrillDownFilter } from '@/components/transaction-drill-down'
-import type { CategorySpendingMatrixResponse, CategoryTrendItem, ReportResponse } from '@/types'
+import type { CategorySpendingMatrixResponse, CategorySpendingRow, CategoryTrendItem, ReportResponse } from '@/types'
 
 function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
   return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
@@ -1052,7 +1052,51 @@ function CategorySpendingReport({
   const currency = data?.meta.currency ?? 'USD'
   const periods = useMemo(() => data?.periods ?? [], [data?.periods])
   const displayedPeriods = useMemo(() => [...periods].reverse(), [periods])
-  const rows = data?.rows ?? []
+  const rows = useMemo(() => data?.rows ?? [], [data?.rows])
+  const groupedRows = useMemo(() => {
+    const groups = new Map<string, {
+      key: string
+      name: string
+      latestAmount: number
+      averageAmount: number
+      periodTotals: Record<string, number>
+      rows: CategorySpendingRow[]
+    }>()
+
+    for (const row of rows) {
+      const key = row.group_id ?? 'ungrouped'
+      if (!groups.has(key)) {
+        groups.set(key, {
+          key,
+          name: row.group_name ?? t('reports.noGroup'),
+          latestAmount: 0,
+          averageAmount: 0,
+          periodTotals: {},
+          rows: [],
+        })
+      }
+      const group = groups.get(key)!
+      group.rows.push(row)
+      for (const period of periods) {
+        group.periodTotals[period.key] = (
+          group.periodTotals[period.key] ?? 0
+        ) + (row.periods[period.key]?.actual_amount ?? 0)
+      }
+    }
+
+    const sortedGroups = Array.from(groups.values())
+    for (const group of sortedGroups) {
+      group.latestAmount = periods[0] ? group.periodTotals[periods[0].key] ?? 0 : 0
+      const totalAcrossPeriods = periods.reduce(
+        (sum, period) => sum + (group.periodTotals[period.key] ?? 0),
+        0
+      )
+      group.averageAmount = periods.length > 0 ? totalAcrossPeriods / periods.length : 0
+      group.rows.sort((a, b) => b.latest_amount - a.latest_amount)
+    }
+    sortedGroups.sort((a, b) => b.latestAmount - a.latestAmount)
+    return sortedGroups
+  }, [periods, rows, t])
   const tableWidth = useMemo(
     () => Math.max(760, 240 + 116 + displayedPeriods.length * 140),
     [displayedPeriods.length]
@@ -1167,53 +1211,71 @@ function CategorySpendingReport({
                   </td>
                 </tr>
               ))
-            ) : rows.length === 0 ? (
+            ) : groupedRows.length === 0 ? (
               <tr>
                 <td colSpan={2 + displayedPeriods.length} className="px-4 py-16 text-center text-sm text-muted-foreground">
                   {t('reports.noData')}
                 </td>
               </tr>
             ) : (
-              rows.map((row) => (
-                <tr key={row.category_id} className="group">
-                  <td className="sticky left-0 z-10 border-t border-border bg-card px-4 py-2.5 group-hover:bg-muted/30">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <CategoryIcon icon={row.category_icon} color={row.category_color} size="md" />
+              groupedRows.map((group) => (
+                <Fragment key={group.key}>
+                  <tr className="bg-muted/40">
+                    <td className="sticky left-0 z-20 border-t border-border bg-muted px-4 py-2.5">
                       <div className="min-w-0">
-                        <div className="truncate font-semibold text-foreground">{row.category_name}</div>
-                        <div className="truncate text-[11px] text-muted-foreground">{row.group_name ?? t('reports.uncategorized')}</div>
+                        <div className="truncate text-sm font-bold text-foreground">{group.name}</div>
                       </div>
-                    </div>
-                  </td>
-                  <td className="border-t border-border px-3 py-2.5 text-right tabular-nums text-muted-foreground">
-                    {mask(formatCurrency(row.average_amount, currency))}
-                  </td>
-                  {displayedPeriods.map((period) => {
-                    const value = row.periods[period.key] ?? { actual_amount: 0, status: 'no_budget' as const }
-                    return (
-                      <td key={period.key} className="border-t border-border px-2 py-2 text-right">
-                        <button
-                          type="button"
-                          className="w-full rounded-lg px-2 py-1.5 text-right transition-colors hover:bg-muted/60"
-                          onClick={() => onDrillDown({
-                            title: t('reports.drillDownCategory', { category: row.category_name, month: period.label }),
-                            category_id: row.category_id,
-                            type: 'debit',
-                            from: period.start,
-                            to: monthEnd(period.end),
-                          })}
-                        >
-                          <div className="font-semibold tabular-nums text-foreground">
-                            {mask(formatCurrency(value.actual_amount, currency))}
-                          </div>
-                          {showVariance && (
-                            <VarianceLine value={value} mask={mask} formatCurrency={(amount) => formatCurrency(amount, currency)} t={t} />
-                          )}
-                        </button>
+                    </td>
+                    <td className="border-t border-border px-3 py-2.5 text-right font-bold tabular-nums text-foreground">
+                      {mask(formatCurrency(group.averageAmount, currency))}
+                    </td>
+                    {displayedPeriods.map((period) => (
+                      <td key={period.key} className="border-t border-border px-3 py-2.5 text-right font-bold tabular-nums text-foreground">
+                        {mask(formatCurrency(group.periodTotals[period.key] ?? 0, currency))}
                       </td>
-                    )
-                  })}
-                </tr>
+                    ))}
+                  </tr>
+                  {group.rows.map((row) => (
+                    <tr key={row.category_id} className="group">
+                      <td className="sticky left-0 z-10 border-t border-border bg-card px-4 py-2.5 group-hover:bg-muted/30">
+                        <div className="flex min-w-0 items-center gap-3 pl-3">
+                          <CategoryIcon icon={row.category_icon} color={row.category_color} size="sm" />
+                          <div className="min-w-0">
+                            <div className="truncate font-semibold text-foreground">{row.category_name}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="border-t border-border px-3 py-2.5 text-right tabular-nums text-muted-foreground">
+                        {mask(formatCurrency(row.average_amount, currency))}
+                      </td>
+                      {displayedPeriods.map((period) => {
+                        const value = row.periods[period.key] ?? { actual_amount: 0, status: 'no_budget' as const }
+                        return (
+                          <td key={period.key} className="border-t border-border px-2 py-2 text-right">
+                            <button
+                              type="button"
+                              className="w-full rounded-lg px-2 py-1.5 text-right transition-colors hover:bg-muted/60"
+                              onClick={() => onDrillDown({
+                                title: t('reports.drillDownCategory', { category: row.category_name, month: period.label }),
+                                category_id: row.category_id,
+                                type: 'debit',
+                                from: period.start,
+                                to: monthEnd(period.end),
+                              })}
+                            >
+                              <div className="font-semibold tabular-nums text-foreground">
+                                {mask(formatCurrency(value.actual_amount, currency))}
+                              </div>
+                              {showVariance && (
+                                <VarianceLine value={value} mask={mask} formatCurrency={(amount) => formatCurrency(amount, currency)} t={t} />
+                              )}
+                            </button>
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  ))}
+                </Fragment>
               ))
             )}
           </tbody>

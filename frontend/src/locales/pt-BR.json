@@ -993,6 +993,7 @@
     "sortOverBudget": "Maior acima do orcamento",
     "sortName": "Nome da categoria",
     "category": "Categoria",
+    "noGroup": "Sem grupo",
     "total": "Total",
     "average": "Media",
     "drillDownCategory": "{{category}} — {{month}}",

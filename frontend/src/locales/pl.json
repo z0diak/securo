@@ -1059,6 +1059,7 @@
     "sortOverBudget": "Najwieksze przekroczenie",
     "sortName": "Nazwa kategorii",
     "category": "Kategoria",
+    "noGroup": "Bez grupy",
     "total": "Razem",
     "average": "Srednia",
     "drillDownCategory": "{{category}} — {{month}}",

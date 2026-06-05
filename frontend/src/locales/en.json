@@ -993,6 +993,7 @@
     "sortOverBudget": "Largest over budget",
     "sortName": "Category name",
     "category": "Category",
+    "noGroup": "No group",
     "total": "Total",
     "average": "Average",
     "drillDownCategory": "{{category}} — {{month}}",
