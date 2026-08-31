@@ -1,10 +1,12 @@
-import { useState, useMemo } from 'react'
+import { useRef, useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { categories as categoriesApi, categoryGroups as categoryGroupsApi, rules as rulesApi, accounts as accountsApi, payees as payeesApi } from '@/lib/api'
+import { extractApiError } from '@/lib/api-errors'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { DeleteConfirmationDialog } from '@/components/delete-confirmation-dialog'
 import { Label } from '@/components/ui/label'
 import {
   Dialog,
@@ -12,12 +14,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import type { Category, Payee, Rule, RuleAction, RuleCondition } from '@/types'
-import { Trash2, Plus, RefreshCw, Package, Check, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import type { Category, Payee, Rule, RuleAction, RuleCondition, RuleConditionNode, RuleExportPayload } from '@/types'
+import { isConditionGroup } from '@/lib/rule-conditions'
+import { Trash2, Plus, RefreshCw, Package, Check, ArrowUpDown, ArrowUp, ArrowDown, Download, Upload } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/page-header'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { RuleDialog } from '@/components/rule-dialog'
+import { findCategoryReference, getRuleCategoryName } from '@/lib/category-reference-utils'
 
 function SectionCard({ children }: { children: React.ReactNode }) {
   return (
@@ -38,6 +42,7 @@ function SectionHeader({ title, action }: { title: string; action?: React.ReactN
 
 const CONDITION_FIELDS = [
   { value: 'description', label: 'rules.fieldDescription' },
+  { value: 'payee', label: 'rules.fieldRawPayee' },
   { value: 'notes', label: 'rules.fieldNotes' },
   { value: 'amount', label: 'rules.fieldAmount' },
   { value: 'type', label: 'rules.fieldType' },
@@ -74,7 +79,7 @@ function getOpsForField(field: string) {
   return STRING_OPS
 }
 
-function conditionSummary(conditions: RuleCondition[], conditionsOp: string, t: (key: string) => string, payeesList: Payee[]): string {
+function conditionSummary(conditions: RuleConditionNode[], conditionsOp: string, t: (key: string) => string, payeesList: Payee[]): string {
   const fieldLabel = (f: string) => {
     const key = CONDITION_FIELDS.find(x => x.value === f)?.label
     return key ? t(key) : f
@@ -90,19 +95,29 @@ function conditionSummary(conditions: RuleCondition[], conditionsOp: string, t: 
     }
     return String(c.value)
   }
-  const parts = conditions.map(c => `${fieldLabel(c.field)} ${opLabel(c.field, c.op)} "${valueLabel(c)}"`)
-  return parts.join(` ${conditionsOp === 'or' ? t('rules.orOp') : t('rules.andOp')} `) || t('rules.noConditions')
+  const leafSummary = (c: RuleCondition) => `${fieldLabel(c.field)} ${opLabel(c.field, c.op)} "${valueLabel(c)}"`
+  const joiner = (op: string) => ` ${op === 'or' ? t('rules.orOp') : t('rules.andOp')} `
+  // Groups get parentheses so a mixed AND/OR rule reads unambiguously.
+  const parts = conditions.map(node => (
+    isConditionGroup(node)
+      ? `(${node.conditions.map(leafSummary).join(joiner(node.op))})`
+      : leafSummary(node)
+  ))
+  return parts.join(joiner(conditionsOp)) || t('rules.noConditions')
 }
 
 function actionSummary(actions: RuleAction[], categories: Category[], payeesList: Payee[], t: (key: string) => string): string {
   return actions.map(a => {
     if (a.op === 'set_category') {
-      const cat = categories.find(c => c.id === a.value)
+      const cat = findCategoryReference(categories, a.value)
       return cat ? `→ ${cat.name}` : `→ ${t('transactions.category')}`
     }
     if (a.op === 'set_payee') {
       const p = payeesList.find(p => p.id === a.value)
       return p ? `→ ${t('payees.payee')}: ${p.name}` : `→ ${t('payees.payee')}`
+    }
+    if (a.op === 'set_description') {
+      return `→ ${t('rules.fieldDescription')}: ${a.value}`
     }
     if (a.op === 'append_notes') return `→ ${t('rules.fieldNotes')}: ${a.value}`
     if (a.op === 'ignore') return `→ ${t('rules.ignoreAction')}`
@@ -116,7 +131,27 @@ export default function RulesPage() {
   const { canWrite } = useWorkspace()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [packsDialogOpen, setPacksDialogOpen] = useState(false)
+  const [importDialogOpen, setImportDialogOpen] = useState(false)
+  const [pendingImport, setPendingImport] = useState<RuleExportPayload | null>(null)
+  const [pendingImportName, setPendingImportName] = useState('')
+  const importInputRef = useRef<HTMLInputElement | null>(null)
   const [editing, setEditing] = useState<Rule | null>(null)
+  const [deletingRule, setDeletingRule] = useState<Rule | null>(null)
+  // Bumped on every open so the dialog remounts with fresh state instead of
+  // retaining the previously entered rule (issue #306).
+  const [dialogInstance, setDialogInstance] = useState(0)
+
+  function openCreate() {
+    setEditing(null)
+    setDialogInstance((n) => n + 1)
+    setDialogOpen(true)
+  }
+
+  function openEdit(rule: Rule) {
+    setEditing(rule)
+    setDialogInstance((n) => n + 1)
+    setDialogOpen(true)
+  }
 
   const { data: rulesList } = useQuery({
     queryKey: ['rules'],
@@ -126,6 +161,11 @@ export default function RulesPage() {
   const { data: categoriesList } = useQuery({
     queryKey: ['categories'],
     queryFn: categoriesApi.list,
+  })
+
+  const { data: allCategoriesList } = useQuery({
+    queryKey: ['categories', 'management'],
+    queryFn: categoriesApi.listIncludingHidden,
   })
 
   const { data: categoryGroupsList } = useQuery({
@@ -145,11 +185,20 @@ export default function RulesPage() {
 
   const createMutation = useMutation({
     mutationFn: (data: Omit<Rule, 'id' | 'user_id'>) => rulesApi.create(data),
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['rules'] })
       queryClient.invalidateQueries({ queryKey: ['rule-packs'] })
       setDialogOpen(false)
-      toast.success(t('rules.created'))
+      // The rule was applied to existing transactions on creation; refresh
+      // financial views and report how many were affected for transparency.
+      const applied = result.applied_count ?? 0
+      if (applied > 0) {
+        invalidateFinancialQueries(queryClient)
+        queryClient.invalidateQueries({ queryKey: ['payees'] })
+        toast.success(t('rules.createdAndApplied', { count: applied }))
+      } else {
+        toast.success(t('rules.created'))
+      }
     },
     onError: (error: unknown) => {
       const err = error as { response?: { status?: number } }
@@ -163,12 +212,19 @@ export default function RulesPage() {
 
   const updateMutation = useMutation({
     mutationFn: ({ id, ...data }: Partial<Rule> & { id: string }) => rulesApi.update(id, data),
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['rules'] })
       queryClient.invalidateQueries({ queryKey: ['rule-packs'] })
       setDialogOpen(false)
       setEditing(null)
-      toast.success(t('rules.updated'))
+      const applied = result.applied_count ?? 0
+      if (applied > 0) {
+        invalidateFinancialQueries(queryClient)
+        queryClient.invalidateQueries({ queryKey: ['payees'] })
+        toast.success(t('rules.updatedAndApplied', { count: applied }))
+      } else {
+        toast.success(t('rules.updated'))
+      }
     },
     onError: (error: unknown) => {
       const err = error as { response?: { status?: number } }
@@ -185,7 +241,11 @@ export default function RulesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['rules'] })
       queryClient.invalidateQueries({ queryKey: ['rule-packs'] })
+      setDeletingRule(null)
       toast.success(t('rules.deleted'))
+    },
+    onError: (err: unknown) => {
+      toast.error(extractApiError(err, t('common.error')))
     },
   })
 
@@ -193,13 +253,54 @@ export default function RulesPage() {
     mutationFn: () => rulesApi.applyAll(),
     onSuccess: (data) => {
       invalidateFinancialQueries(queryClient)
+      queryClient.invalidateQueries({ queryKey: ['payees'] })
       toast.success(t('rules.applied', { count: data.applied }))
     },
     onError: () => toast.error(t('common.error')),
   })
 
-  const categories = categoriesList ?? []
-  const payees = payeesList ?? []
+  const exportMutation = useMutation({
+    mutationFn: () => rulesApi.exportFile(),
+    onSuccess: () => toast.success(t('rules.exported')),
+    onError: () => toast.error(t('common.error')),
+  })
+
+  const importMutation = useMutation({
+    mutationFn: (payload: RuleExportPayload) => rulesApi.importFile(payload, true),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['rules'] })
+      queryClient.invalidateQueries({ queryKey: ['rule-packs'] })
+      setImportDialogOpen(false)
+      setPendingImport(null)
+      setPendingImportName('')
+      toast.success(t('rules.imported', { imported: data.imported, skipped: data.skipped }))
+    },
+    onError: () => toast.error(t('common.error')),
+  })
+
+  async function handleImportFile(file: File) {
+    try {
+      const parsed = JSON.parse(await file.text()) as RuleExportPayload
+      if (parsed.format !== 'securo-categorization-rules' || !Array.isArray(parsed.rules)) {
+        toast.error(t('rules.invalidImportFile'))
+        return
+      }
+      setPendingImport(parsed)
+      setPendingImportName(file.name)
+      setImportDialogOpen(true)
+    } catch {
+      toast.error(t('rules.invalidImportFile'))
+    } finally {
+      if (importInputRef.current) importInputRef.current.value = ''
+    }
+  }
+
+  const categories = useMemo(() => categoriesList ?? [], [categoriesList])
+  const displayCategories = useMemo(
+    () => allCategoriesList ?? categoriesList ?? [],
+    [allCategoriesList, categoriesList],
+  )
+  const payees = useMemo(() => payeesList ?? [], [payeesList])
 
   const [sortBy, setSortBy] = useState<'priority' | 'name' | 'category'>('priority')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
@@ -212,15 +313,12 @@ export default function RulesPage() {
     }
     if (sortBy === 'category') {
       const getCategoryName = (rule: Rule) => {
-        const action = rule.actions.find(a => a.op === 'set_category')
-        if (!action) return ''
-        const cat = categories.find(c => c.id === action.value)
-        return cat?.name ?? ''
+        return getRuleCategoryName(rule, displayCategories) ?? ''
       }
       return list.sort((a, b) => dir * getCategoryName(a).localeCompare(getCategoryName(b)))
     }
     return list.sort((a, b) => dir * (a.priority - b.priority))
-  }, [rulesList, categories, sortBy, sortDir])
+  }, [rulesList, displayCategories, sortBy, sortDir])
 
   return (
     <div>
@@ -232,6 +330,36 @@ export default function RulesPage() {
           action={
             canWrite ? (
               <div className="flex gap-2">
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept="application/json,.json"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0]
+                    if (file) void handleImportFile(file)
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 h-8"
+                  onClick={() => exportMutation.mutate()}
+                  disabled={exportMutation.isPending}
+                >
+                  <Download size={12} />
+                  <span className="hidden sm:inline">{t('rules.export')}</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 h-8"
+                  onClick={() => importInputRef.current?.click()}
+                  disabled={importMutation.isPending}
+                >
+                  <Upload size={12} />
+                  <span className="hidden sm:inline">{t('rules.import')}</span>
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"
@@ -245,13 +373,17 @@ export default function RulesPage() {
                   variant="outline"
                   size="sm"
                   className="gap-1.5 h-8"
-                  onClick={() => applyAllMutation.mutate()}
+                  onClick={() => {
+                    if (window.confirm(t('rules.confirmResetAndReapplyAll', 'Reset matching transaction categories, notes, and rule-managed descriptions, then reapply all active rules?'))) {
+                      applyAllMutation.mutate()
+                    }
+                  }}
                   disabled={applyAllMutation.isPending}
                 >
                   <RefreshCw size={12} />
-                  <span className="hidden sm:inline">{t('rules.reapplyAll')}</span>
+                  <span className="hidden sm:inline">{t('rules.resetAndReapplyAll', 'Reset and reapply')}</span>
                 </Button>
-                <Button size="sm" className="gap-1.5 h-8" onClick={() => { setEditing(null); setDialogOpen(true) }}>
+                <Button size="sm" className="gap-1.5 h-8" onClick={openCreate}>
                   <Plus size={13} /> <span className="hidden sm:inline">{t('rules.add')}</span>
                 </Button>
               </div>
@@ -290,7 +422,7 @@ export default function RulesPage() {
                   'px-4 sm:px-5 py-3 hover:bg-muted transition-colors',
                   canWrite && 'cursor-pointer',
                 )}
-                onClick={() => { if (canWrite) { setEditing(rule); setDialogOpen(true) } }}
+                onClick={() => { if (canWrite) openEdit(rule) }}
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
@@ -309,15 +441,16 @@ export default function RulesPage() {
                       {conditionSummary(rule.conditions, rule.conditions_op, t, payees)}
                     </p>
                     <p className="text-xs text-emerald-600 font-medium mt-0.5">
-                      {actionSummary(rule.actions, categories, payees, t)}
+                      {actionSummary(rule.actions, displayCategories, payees, t)}
                     </p>
                   </div>
                   {canWrite && (
                     <div className="flex items-center gap-1 shrink-0">
                       <button
                         className="p-1.5 rounded-md text-muted-foreground hover:text-rose-500 hover:bg-rose-50 transition-colors"
-                        onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(rule.id) }}
+                        onClick={(e) => { e.stopPropagation(); setDeletingRule(rule) }}
                         disabled={deleteMutation.isPending}
+                        title={t('common.delete')}
                       >
                         <Trash2 size={13} />
                       </button>
@@ -332,18 +465,58 @@ export default function RulesPage() {
         )}
       </SectionCard>
 
+      <DeleteConfirmationDialog
+        open={!!deletingRule}
+        title={t('rules.confirmDeleteTitle')}
+        description={t('rules.confirmDeleteDescription', { name: deletingRule?.name })}
+        isPending={deleteMutation.isPending}
+        onClose={() => setDeletingRule(null)}
+        onConfirm={() => deletingRule && deleteMutation.mutate(deletingRule.id)}
+      />
+
       <RulePacksDialog
         open={packsDialogOpen}
         onClose={() => setPacksDialogOpen(false)}
       />
 
+      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('rules.importConfirmTitle')}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm text-muted-foreground">
+            <p>{t('rules.importConfirmDescription', { count: pendingImport?.rules.length ?? 0, file: pendingImportName })}</p>
+            <p className="font-medium text-amber-600">{t('rules.importOverwriteWarning')}</p>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => { setImportDialogOpen(false); setPendingImport(null); setPendingImportName('') }}
+              disabled={importMutation.isPending}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => { if (pendingImport) importMutation.mutate(pendingImport) }}
+              disabled={!pendingImport || importMutation.isPending}
+            >
+              {t('rules.confirmOverwriteImport')}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <RuleDialog
-        key={editing?.id ?? 'new'}
+        key={dialogInstance}
         open={dialogOpen}
         onClose={() => { setDialogOpen(false); setEditing(null) }}
         rule={editing}
         categories={categories}
         categoryGroups={categoryGroupsList ?? []}
+        currentCategories={allCategoriesList ?? []}
         accounts={accountsList ?? []}
         payees={payees}
         onSave={(data) => {
@@ -456,4 +629,3 @@ function RulePacksDialog({ open, onClose }: { open: boolean; onClose: () => void
     </Dialog>
   )
 }
-

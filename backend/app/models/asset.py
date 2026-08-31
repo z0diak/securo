@@ -3,7 +3,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Optional
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String
+from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -11,11 +11,23 @@ from app.core.database import Base
 
 if TYPE_CHECKING:
     from app.models.asset_group import AssetGroup
+    from app.models.asset_transaction import AssetTransaction
     from app.models.asset_value import AssetValue
 
 
 class Asset(Base):
     __tablename__ = "assets"
+    __table_args__ = (
+        Index(
+            "ux_assets_workspace_source_external",
+            "workspace_id",
+            "source",
+            "external_id",
+            unique=True,
+            postgresql_where=text("external_id IS NOT NULL"),
+            sqlite_where=text("external_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
@@ -67,10 +79,25 @@ class Asset(Base):
         Numeric(precision=18, scale=6), nullable=True
     )
     last_price_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Weighted-average cost per unit (preço médio), derived from the
+    # asset_transactions ledger and cached here for cheap list reads. For
+    # ledger-backed holdings `purchase_price` caches the total cost basis of
+    # the currently-held units, so `gain_loss = current_value - purchase_price`
+    # stays meaningful as the unrealized gain (issue #235).
+    average_price: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(precision=18, scale=6), nullable=True
+    )
+    # Cumulative realized gain/loss from sell transactions, in asset currency.
+    realized_gain: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(precision=18, scale=2), nullable=True
+    )
     # Fully-formed logo URL — populated at create time for market-priced
     # assets when a logo provider is configured. Null means "no logo, use
     # the type icon". Frontend swaps to the type icon on <img> load error.
     logo_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
     values: Mapped[list["AssetValue"]] = relationship(back_populates="asset", cascade="all, delete-orphan")
+    transactions: Mapped[list["AssetTransaction"]] = relationship(
+        back_populates="asset", cascade="all, delete-orphan"
+    )
     group: Mapped[Optional["AssetGroup"]] = relationship(back_populates="assets")

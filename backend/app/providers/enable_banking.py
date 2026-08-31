@@ -30,9 +30,12 @@ from app.providers.base import (
     ConnectionData,
     InstitutionData,
     InstitutionListData,
+    ProviderRateLimited,
     ProviderUserActionRequired,
     SessionExpiredError,
     TransactionData,
+    default_oauth_redirect_uri,
+    mask_last4,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,7 +45,8 @@ JWT_AUDIENCE = "api.enablebanking.com"
 JWT_LIFETIME_SECONDS = 3500  # under EB's 1h cap; refresh well before
 JWT_CACHE_REFRESH_BEFORE = 600  # re-mint with 10 min buffer
 
-DEFAULT_VALID_UNTIL_DAYS = 180
+MAX_VALID_UNTIL_DAYS = 179
+DEFAULT_VALID_UNTIL_DAYS = MAX_VALID_UNTIL_DAYS
 DEFAULT_PSU_TYPE = "personal"
 DEFAULT_HISTORY_DAYS = 90
 TRANSACTION_PAGE_LIMIT = 50  # safety cap
@@ -61,6 +65,28 @@ def _map_cash_account_type(eb_type: Optional[str]) -> str:
         "OTHR": "checking",
     }
     return mapping.get(eb_type.upper(), "checking")
+
+
+def _account_identifier(raw: dict) -> Optional[str]:
+    """Pull the bank's own identifier for an account out of an EB details payload.
+
+    EB reports it in three places, in descending order of usefulness: the IBAN
+    on `account_id`, a non-IBAN scheme (BBAN, sort-code-and-account) on
+    `account_id.other`, and the `all_account_ids` list. Banks outside SEPA only
+    populate the latter two, so we fall through rather than assuming an IBAN.
+    """
+    account_id = raw.get("account_id") or {}
+    if isinstance(account_id, dict):
+        iban = account_id.get("iban")
+        if iban:
+            return str(iban)
+        other = account_id.get("other") or {}
+        if isinstance(other, dict) and other.get("identification"):
+            return str(other["identification"])
+    for entry in raw.get("all_account_ids") or []:
+        if isinstance(entry, dict) and entry.get("identification"):
+            return str(entry["identification"])
+    return None
 
 
 def _pick_balance(balances: list[dict]) -> Optional[dict]:
@@ -166,7 +192,10 @@ class EnableBankingProvider(BankProvider):
 
     @property
     def redirect_uri(self) -> str:
-        return get_settings().enable_banking_oauth_redirect_uri
+        return (
+            get_settings().enable_banking_oauth_redirect_uri
+            or default_oauth_redirect_uri()
+        )
 
     # ----- credentials -----
 
@@ -179,7 +208,7 @@ class EnableBankingProvider(BankProvider):
         if key_file:
             cls._cached_private_key = Path(key_file).read_text(encoding="utf-8")
             return cls._cached_private_key
-        raw = settings.enable_banking_private_key or ""
+        raw = settings.enable_banking_private_key.get_secret_value() or ""
         if "\\n" in raw and "\n" not in raw:
             raw = raw.replace("\\n", "\n")
         cls._cached_private_key = raw
@@ -244,6 +273,13 @@ class EnableBankingProvider(BankProvider):
             raise SessionExpiredError(
                 f"Enable Banking returned {resp.status_code} for {path}"
             )
+        if resp.status_code == 429:
+            # The bank (ASPSP) is throttling us — transient, not a broken
+            # connection. Surface a distinct type so sync can skip-and-retry
+            # instead of erroring the connection.
+            raise ProviderRateLimited(
+                f"Enable Banking {method} {path} → 429: {resp.text[:200]}"
+            )
         if resp.status_code >= 400:
             raise httpx.HTTPStatusError(
                 f"Enable Banking {method} {path} → {resp.status_code}: {resp.text[:300]}",
@@ -268,6 +304,9 @@ class EnableBankingProvider(BankProvider):
             inst_country = (item.get("country") or "").upper()
             if inst_country:
                 countries.add(inst_country)
+            if (maximum_consent_validity := item.get("maximum_consent_validity", None)) is not None:
+                maximum_consent_validity = timedelta(seconds=maximum_consent_validity).days
+
             institutions.append(
                 InstitutionData(
                     name=item.get("name") or "",
@@ -276,7 +315,7 @@ class EnableBankingProvider(BankProvider):
                     logo=item.get("logo"),
                     bic=item.get("bic"),
                     psu_types=list(item.get("psu_types") or []),
-                    max_consent_days=item.get("maximum_consent_validity"),
+                    max_consent_days=maximum_consent_validity,
                 )
             )
         institutions.sort(key=lambda i: (i.country, i.display_name.lower()))
@@ -297,6 +336,7 @@ class EnableBankingProvider(BankProvider):
         psu_type: str,
         valid_until_days: int,
     ) -> dict:
+        valid_until_days = min(valid_until_days, MAX_VALID_UNTIL_DAYS)
         valid_until_dt = datetime.now(timezone.utc) + timedelta(days=valid_until_days)
         # EB wants RFC3339 with a trailing 'Z' for UTC.
         valid_until = valid_until_dt.replace(microsecond=0).isoformat().replace(
@@ -397,7 +437,22 @@ class EnableBankingProvider(BankProvider):
             institution_name=institution_name,
             credentials=credentials,
             accounts=accounts,
+            # The session payload sometimes carries the ASPSP logo; when it
+            # doesn't, the sync layer backfills it via get_institution_logo.
+            logo_url=aspsp.get("logo"),
         )
+
+    async def get_institution_logo(self, credentials: dict) -> Optional[str]:
+        aspsp = credentials.get("aspsp") or {}
+        name = aspsp.get("name")
+        country = aspsp.get("country")
+        if not name:
+            return None
+        institutions = await self.list_institutions(country)
+        for inst in institutions.institutions:
+            if inst.name == name:
+                return inst.logo
+        return None
 
     async def _build_account(self, raw: dict) -> AccountData:
         uid = raw.get("uid") or raw.get("account_uid") or ""
@@ -425,6 +480,7 @@ class EnableBankingProvider(BankProvider):
             type=_map_cash_account_type(raw.get("cash_account_type")),
             balance=balance,
             currency=currency,
+            masked_number=mask_last4(_account_identifier(raw)),
         )
 
     # ----- account / transaction fetches -----
