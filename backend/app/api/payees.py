@@ -11,7 +11,7 @@ from app.core.workspace_context import (
     current_workspace,
     current_writable_workspace,
 )
-from app.schemas.payee import PayeeCreate, PayeeMergeRequest, PayeeRead, PayeeSummary, PayeeUpdate
+from app.schemas.payee import PayeeCreate, PayeeMergeRequest, PayeeRead, PayeeSummary, PayeeUpdate, PayeeBulkDeleteRequest
 from app.schemas.category import CategoryRead
 from app.services import payee_service
 
@@ -20,10 +20,15 @@ router = APIRouter(prefix="/api/payees", tags=["payees"])
 
 @router.get("", response_model=list[PayeeRead])
 async def list_payees(
+    q: Optional[str] = Query(None),
+    type: Optional[str] = Query(None),
+    is_favorite: Optional[bool] = Query(None),
     ctx: WorkspaceContext = Depends(current_workspace),
     session: AsyncSession = Depends(get_async_session),
 ):
-    return await payee_service.get_payees(session, ctx.workspace.id)
+    return await payee_service.get_payees(
+        session, ctx.workspace.id, q=q, type=type, is_favorite=is_favorite
+    )
 
 
 @router.get("/{payee_id}", response_model=PayeeRead)
@@ -110,3 +115,13 @@ async def merge_payees(
         return {"merged": len(data.source_ids), "transactions_reassigned": reassigned}
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/bulk-delete", status_code=status.HTTP_200_OK)
+async def bulk_delete_payees(
+    data: PayeeBulkDeleteRequest,
+    ctx: WorkspaceContext = Depends(current_writable_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    deleted_count = await payee_service.bulk_delete_payees(session, ctx.workspace.id, data.ids)
+    return {"deleted": deleted_count}

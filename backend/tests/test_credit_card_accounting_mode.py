@@ -488,6 +488,35 @@ class TestDashboardSummary:
 
 class TestSpendingByCategory:
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("mode", ["cash", "accrual"])
+    async def test_pending_credit_card_spend_is_available_in_projected_total(
+        self, session, test_user, test_workspace, cc_account, test_categories, mode
+    ):
+        """The dashboard category widget can include pending card spend.
+
+        ``total`` remains the settled-only value used by the actual/forecast
+        split, while ``projected_total`` is the all-in value that must match
+        the dashboard drill-down.
+        """
+        food = test_categories[0]
+        today = date.today()
+        pending = await _make_tx(
+            session, test_user.id, cc_account.id, today,
+            Decimal("100"), effective_date=today, category_id=food.id,
+        )
+        pending.status = "pending"
+        await session.commit()
+        await _set_mode(session, mode)
+
+        spending = await dashboard_service.get_spending_by_category(
+            session, test_workspace.id, test_user.id, month=today.replace(day=1)
+        )
+        food_row = next(row for row in spending if row.category_id == str(food.id))
+
+        assert food_row.total == 0.0
+        assert food_row.projected_total == 100.0
+
+    @pytest.mark.asyncio
     async def test_category_breakdown_follows_mode(
         self, session, test_user, test_workspace, cc_account, test_categories
     ):
@@ -522,6 +551,72 @@ class TestSpendingByCategory:
         # Accrual April: Mar 30 food R$100 bills Apr 16
         assert accrual_map.get("Alimentação", 0) == 100.0
         assert accrual_map.get("Transporte", 0) == 0.0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("mode", ["cash", "accrual"])
+    async def test_category_breakdown_honors_effective_bill_date_override(
+        self, session, test_user, test_workspace, cc_account, test_categories, mode
+    ):
+        """Issue #232: when the user manually moves a credit-card purchase to
+        a different invoice via effective_bill_date, the dashboard category
+        panel must aggregate it under the invoice month — not the purchase
+        month — in BOTH cash and accrual modes. The override beats whichever
+        date column the mode would otherwise bucket by, matching the
+        transaction list and the bill view."""
+        food = test_categories[0]
+        # Purchased May 27. effective_date deliberately left in May (the stale
+        # purchase month) so the only thing that can move it to June is the
+        # override — proving the override wins over both report columns.
+        tx = await _make_tx(
+            session, test_user.id, cc_account.id, date(2026, 5, 27),
+            Decimal("100"), effective_date=date(2026, 5, 27), category_id=food.id,
+        )
+        tx.effective_bill_date = date(2026, 6, 1)  # user moved it to the June invoice
+        await session.commit()
+
+        await _set_mode(session, mode)
+
+        # May must NOT include the purchase anymore.
+        may = await dashboard_service.get_spending_by_category(
+            session, test_workspace.id, test_user.id, month=date(2026, 5, 1)
+        )
+        may_map = {c.category_name: c.total for c in may}
+        assert may_map.get("Alimentação", 0) == 0.0, (
+            f"{mode}: override'd tx must leave its purchase month"
+        )
+
+        # June (the invoice month) must include it.
+        june = await dashboard_service.get_spending_by_category(
+            session, test_workspace.id, test_user.id, month=date(2026, 6, 1)
+        )
+        june_map = {c.category_name: c.total for c in june}
+        assert june_map.get("Alimentação", 0) == 100.0, (
+            f"{mode}: override'd tx must land in the invoice month"
+        )
+
+    @pytest.mark.asyncio
+    async def test_summary_honors_effective_bill_date_override_in_cash_mode(
+        self, session, test_user, test_workspace, cc_account, test_categories
+    ):
+        """Companion to the category test: the dashboard summary totals must
+        also follow the manual invoice override (issue #232)."""
+        food = test_categories[0]
+        tx = await _make_tx(
+            session, test_user.id, cc_account.id, date(2026, 5, 27),
+            Decimal("100"), effective_date=date(2026, 5, 27), category_id=food.id,
+        )
+        tx.effective_bill_date = date(2026, 6, 1)
+        await session.commit()
+
+        await _set_mode(session, "cash")
+        may = await dashboard_service.get_summary(
+            session, test_workspace.id, test_user.id, month=date(2026, 5, 1)
+        )
+        june = await dashboard_service.get_summary(
+            session, test_workspace.id, test_user.id, month=date(2026, 6, 1)
+        )
+        assert may.monthly_expenses == 0.0
+        assert june.monthly_expenses == 100.0
 
 
 # ---------------------------------------------------------------------------
@@ -1359,6 +1454,8 @@ class TestEffectiveBillDateFiltersList:
             date_from=date(2026, 3, 17), date_to=date(2026, 4, 16),
             bill_id=bill.id,
         )
+
+        assert summary is not None
         assert summary["monthly_income"] == 80.0
 
     @pytest.mark.asyncio
@@ -1416,6 +1513,8 @@ class TestEffectiveBillDateFiltersList:
             bill_id=bill.id,
         )
         # 44.90 (charge) - 44.90 (refund) + 32.50 (other) = 32.50
+
+        assert summary is not None
         assert summary["monthly_expenses"] == 32.50
 
     @pytest.mark.asyncio
@@ -1454,6 +1553,8 @@ class TestEffectiveBillDateFiltersList:
             session, checking.id, test_workspace.id,
             date_from=date(2026, 4, 1), date_to=date(2026, 4, 30),
         )
+
+        assert summary is not None
         assert summary["monthly_expenses"] == 50.0
         assert summary["monthly_income"] == 3000.0
 
@@ -1537,6 +1638,8 @@ class TestEffectiveBillDateFiltersList:
             bill_id=bill.id,
         )
         # Manual 50 counted, pending 99 excluded
+
+        assert summary is not None
         assert summary["monthly_expenses"] == 50.0
 
     @pytest.mark.asyncio
@@ -1612,14 +1715,15 @@ class TestEffectiveBillDateFiltersList:
         )
 
     @pytest.mark.asyncio
-    async def test_summary_includes_pending_sync_with_override(
+    async def test_summary_forecast_includes_pending_sync_with_override(
         self, session, test_user, test_workspace, cc_account
     ):
         """get_account_summary mirrors get_transactions: a pending sync tx
         with `effective_bill_date` in the cycle window must contribute to
-        the totals card and bar chart even when the override doesn't snap
-        to a bill's due_date (so bill_id stays null). Without this the
-        strip pill totals diverge from the tx list (issue #162)."""
+        the projected totals even when the override doesn't snap to a bill's
+        due_date (so bill_id stays null). Actual totals remain posted-only.
+        Without this the projected bill total diverges from the tx list
+        (issue #162)."""
         from app.services.account_service import get_account_summary
         from app.models.credit_card_bill import CreditCardBill
         from datetime import datetime, timezone
@@ -1649,7 +1753,10 @@ class TestEffectiveBillDateFiltersList:
             date_from=date(2026, 4, 17), date_to=date(2026, 5, 16),
             bill_id=may.id,
         )
-        assert summary["monthly_expenses"] == 105.0
+
+        assert summary is not None
+        assert summary["monthly_expenses"] == 0.0
+        assert summary["projected_expenses"] == 105.0
 
     @pytest.mark.asyncio
     async def test_override_past_in_progress_window_lands_in_in_progress(
@@ -1693,4 +1800,6 @@ class TestEffectiveBillDateFiltersList:
             date_from=date(2026, 4, 12), date_to=date(2026, 5, 11),
             unbilled_only=True,
         )
+
+        assert summary is not None
         assert summary["monthly_expenses"] == 59.90

@@ -1,13 +1,15 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { getAccountName } from '@/lib/account-utils'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useDisplayLocale } from '@/hooks/use-display-locale'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/auth-context'
-import { auth as authApi, backup as backupApi, admin as adminApi } from '@/lib/api'
+import { useCollectionFilter } from '@/contexts/collection-filter-context'
+import { useWorkspace } from '@/contexts/workspace-context'
+import { CollectionSelector } from '@/components/collection-selector'
+import { auth as authApi, admin as adminApi } from '@/lib/api'
 import { resolveSupportedLang } from '@/lib/i18n'
-import { toast } from 'sonner'
 import { OnboardingTour } from '@/components/onboarding-tour'
 import { useTheme } from 'next-themes'
 import { accounts as accountsApi } from '@/lib/api'
@@ -31,23 +33,12 @@ import { ShellLogo } from '@/components/shell-logo'
 import { UpdateAvailableBanner } from '@/components/update-available-banner'
 import { UpdateAvailableDialog } from '@/components/update-available-dialog'
 import { WorkspaceSwitcher } from '@/components/workspace-switcher'
+import { navItems, visibleNavItems, type NavItem } from '@/lib/nav-items'
 import {
-  ArrowLeftRight,
-  Building2,
-  SlidersHorizontal,
-  Upload,
   Menu,
   ChevronRight,
-  Tag,
-  PiggyBank,
-  Target,
   Eye,
   EyeOff,
-  Repeat,
-  Landmark,
-  Users,
-  Split,
-  BarChart3,
   Sun,
   Moon,
   Languages,
@@ -56,52 +47,47 @@ import {
   HardDriveDownload,
   Shield,
   ShieldCheck,
+  Fingerprint,
 } from 'lucide-react'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { ChangePasswordDialog } from '@/components/change-password-dialog'
+import { BackupDialog } from '@/components/backup-dialog'
 import { TwoFactorSetup } from '@/components/two-factor-setup'
+import { PasskeyManagementDialog } from '@/components/passkey-management-dialog'
 import { CommandPalette } from '@/components/command-palette'
 import { useCommandPaletteHotkey } from '@/hooks/use-command-palette-hotkey'
 import { GlobalChatPanel } from '@/components/global-chat-panel'
 import { useFeatureFlags } from '@/hooks/use-feature-flags'
 import { Bot, Search, Sparkles } from 'lucide-react'
 import { setThemeBasedOnSystem } from '@/lib/theme-utils'
+import { useLocalAuthEnabled } from '@/hooks/use-local-auth'
+import { formatCurrency } from '@/lib/format'
 
-type NavItem =
-  | { type: 'link'; key: string; path: string; icon: React.ElementType }
-  | { type: 'separator'; labelKey: string }
-
-const navItems: NavItem[] = [
-  // The dashboard ("Painel") is now reachable by clicking the Securo
-  // logo + name in the sidebar header — no dedicated menu item to keep
-  // the sidebar focused on the main destinations. Transactions sits
-  // inside the ACCOUNTS section since it's account-scoped data.
-  { type: 'separator', labelKey: 'nav.groupAccounts' },
-  { type: 'link', key: 'transactions', path: '/transactions', icon: ArrowLeftRight },
-  { type: 'link', key: 'accounts', path: '/accounts', icon: Building2 },
-  { type: 'link', key: 'import', path: '/import', icon: Upload },
-  { type: 'separator', labelKey: 'nav.groupAnalysis' },
-  { type: 'link', key: 'reports', path: '/reports', icon: BarChart3 },
-  { type: 'link', key: 'assets', path: '/assets', icon: Landmark },
-  { type: 'separator', labelKey: 'nav.groupSetup' },
-  { type: 'link', key: 'budgets', path: '/budgets', icon: PiggyBank },
-  { type: 'link', key: 'goals', path: '/goals', icon: Target },
-  { type: 'link', key: 'recurring', path: '/recurring', icon: Repeat },
-  { type: 'link', key: 'categories', path: '/categories', icon: Tag },
-  { type: 'link', key: 'payees', path: '/payees', icon: Users },
-  { type: 'link', key: 'splitGroups', path: '/groups', icon: Split },
-  { type: 'link', key: 'rules', path: '/rules', icon: SlidersHorizontal },
-]
-
-function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
-  return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(
-    value,
+/** Placeholder rows shown while the workspace's module list is in flight. */
+function NavSkeleton() {
+  return (
+    <div className="flex flex-col gap-0.5" aria-hidden>
+      {[3, 2, 7].map((count, section) => (
+        <div key={section} className={cn('flex flex-col gap-0.5', section > 0 && 'pt-3')}>
+          <div className="px-3 pt-1 pb-1">
+            <div className="h-2 w-16 rounded bg-sidebar-accent/60 animate-pulse" />
+          </div>
+          {Array.from({ length: count }).map((_, row) => (
+            <div key={row} className="flex items-center gap-3 px-3 py-2">
+              <div className="h-4 w-4 rounded bg-sidebar-accent/60 animate-pulse" />
+              <div className="h-3 flex-1 max-w-[7rem] rounded bg-sidebar-accent/40 animate-pulse" />
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
   )
 }
 
 export function AppLayout() {
   const { t } = useTranslation()
   const { user, logout, updateUser } = useAuth()
+  const { activeAccountIds } = useCollectionFilter()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const locale = useDisplayLocale()
   const { theme, setTheme, resolvedTheme } = useTheme()
@@ -112,12 +98,26 @@ export function AppLayout() {
   const { privacyMode, togglePrivacyMode, mask } = usePrivacyMode()
   const [changePasswordOpen, setChangePasswordOpen] = useState(false)
   const [twoFactorOpen, setTwoFactorOpen] = useState(false)
-  const [backingUp, setBackingUp] = useState(false)
+  const [passkeysOpen, setPasskeysOpen] = useState(false)
+  const [backupOpen, setBackupOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
   useCommandPaletteHotkey(setPaletteOpen)
   const { agentsEnabled } = useFeatureFlags()
+  const { hasModule, isLoading: workspaceLoading, canWrite } = useWorkspace()
+  // The chat is offered only to members who can write. Sending a message
+  // reaches a tool set that persists — `propose_create_transaction` and its
+  // siblings — so the backend refuses it for a read-only role. Showing the
+  // panel anyway would put a raw `403: {"detail":"Read-only role"}` in front
+  // of the user, which is what happened before this guard.
+  //
+  // This costs a viewer the ability to *ask* questions, which is a real use
+  // case. Restoring it means making the agent's tools role-aware so a
+  // read-only session only exposes the reading ones; then this becomes
+  // `agentsEnabled` again.
+  const chatAvailable = agentsEnabled && canWrite
+  const localAuthEnabled = useLocalAuthEnabled()
 
   // ⌘J / Ctrl+J toggles the global slide-over chat from anywhere.
   // Distinct from ⌘K (command palette) so users can have both open.
@@ -128,7 +128,7 @@ export function AppLayout() {
       setThemeBasedOnSystem(light, dark, resolvedTheme)
     }).catch(() => {})
     
-    if (!agentsEnabled) return
+    if (!chatAvailable) return
     const handler = (e: KeyboardEvent) => {
       const isMod = e.metaKey || e.ctrlKey
       if (isMod && (e.key === 'j' || e.key === 'J')) {
@@ -138,12 +138,15 @@ export function AppLayout() {
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [agentsEnabled, resolvedTheme])
+  }, [chatAvailable, resolvedTheme])
   // The "Agents" management page used to live in the sidebar, but it's
   // a configuration surface (KB upload, providers, default selection),
   // not a daily destination. Moved to the user menu (Change password,
   // 2FA, Backups, AI agents).
-  const finalNavItems: NavItem[] = navItems
+  const finalNavItems: NavItem[] = useMemo(
+    () => visibleNavItems(navItems, hasModule),
+    [hasModule],
+  )
   const isMac =
     typeof navigator !== 'undefined' &&
     /Mac|iPhone|iPad|iPod/.test(navigator.platform)
@@ -181,7 +184,12 @@ export function AppLayout() {
   })
 
   const allAccounts = accountsList ?? []
-  const totalBalance = allAccounts.reduce((sum, a) => {
+  // When a collection is active, the sidebar list + total reflect only its
+  // accounts (issue #105). null = all accounts.
+  const visibleAccounts = activeAccountIds
+    ? allAccounts.filter((a) => activeAccountIds.includes(a.id))
+    : allAccounts
+  const totalBalance = visibleAccounts.reduce((sum, a) => {
     return sum + Number(a.balance_primary ?? a.current_balance)
   }, 0)
   const versionA11yLabel = t('app.versionAriaLabel', { version: APP_VERSION })
@@ -237,7 +245,7 @@ export function AppLayout() {
           {/* AI chat — opens the global slide-over (also reachable via
               ⌘J). Sits next to the theme toggle so the icon is always
               within thumb reach on mobile too. */}
-          {agentsEnabled && (
+          {chatAvailable && (
             <button
               onClick={() => setChatOpen(true)}
               className="text-sidebar-muted hover:text-sidebar-foreground transition-colors p-1"
@@ -252,19 +260,10 @@ export function AppLayout() {
             logout={logout}
             onChangePassword={() => setChangePasswordOpen(true)}
             onTwoFactor={() => setTwoFactorOpen(true)}
+            onPasskeys={() => setPasskeysOpen(true)}
+            localAuthEnabled={localAuthEnabled}
             agentsEnabled={agentsEnabled}
-            backingUp={backingUp}
-            onBackup={async () => {
-              setBackingUp(true)
-              try {
-                await backupApi.download()
-                toast.success(t('backup.success'))
-              } catch {
-                toast.error(t('backup.error'))
-              } finally {
-                setBackingUp(false)
-              }
-            }}
+            onBackup={() => setBackupOpen(true)}
             dark
             isAdmin={user?.is_superuser}
           />
@@ -315,7 +314,7 @@ export function AppLayout() {
               {/* AI chat — same trigger as the mobile bar, ⌘J also
                   works. Lives in the sidebar header so the entry point
                   is visible even on first load (no floating button). */}
-              {agentsEnabled && (
+              {chatAvailable && (
                 <button
                   onClick={() => setChatOpen(true)}
                   className="text-sidebar-muted hover:text-sidebar-foreground transition-colors p-1 rounded-md hover:bg-sidebar-accent"
@@ -363,7 +362,11 @@ export function AppLayout() {
           <div className="flex-1 min-h-0 overflow-y-auto">
           {/* Nav */}
           <nav className="flex flex-col gap-0.5 px-3 pt-1 pb-3" data-tour="sidebar">
-            {finalNavItems.map((item, idx) => {
+            {/* Which modules this workspace shows is resolved server-side,
+                so until the workspace list lands there is no honest answer
+                — a placeholder beats both an empty sidebar and a guess. */}
+            {workspaceLoading && <NavSkeleton />}
+            {!workspaceLoading && finalNavItems.map((item, idx) => {
               if (item.type === 'separator') {
                 // The first separator sits right below the search bar
                 // — without trimming the top padding it leaves a wide
@@ -437,12 +440,8 @@ export function AppLayout() {
               </button>
               {accountsExpanded && (
                 <div className="mt-1 space-y-0.5">
-                  {[...allAccounts].sort((a, b) => Math.abs(Number(b.current_balance)) - Math.abs(Number(a.current_balance))).slice(0, accountsShowAll ? allAccounts.length : 3).map((acc) => {
-                    const balance = Number(acc.current_balance)
-                    const prevBalance = acc.previous_balance ?? 0
-                    const pctChange = prevBalance !== 0
-                      ? ((balance - prevBalance) / Math.abs(prevBalance)) * 100
-                      : null
+                  {[...visibleAccounts].sort((a, b) => Math.abs(Number(b.current_balance)) - Math.abs(Number(a.current_balance))).slice(0, accountsShowAll ? visibleAccounts.length : 3).map((acc) => {
+                    const balance = Number(acc.current_balance) || 0
                     const typeKey = acc.type.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()).replace(/^./, c => c.toUpperCase())
 
                     return (
@@ -462,16 +461,11 @@ export function AppLayout() {
                           <span className={`block tabular-nums font-medium text-xs ${balance < 0 ? 'text-rose-400' : 'text-sidebar-foreground'}`}>
                             {mask(formatCurrency(balance, acc.currency, locale))}
                           </span>
-                          {pctChange !== null && (
-                            <span className={`block text-[10px] tabular-nums font-medium ${pctChange >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                              {mask(`${pctChange >= 0 ? '+' : ''}${pctChange.toFixed(1)}%`)}
-                            </span>
-                          )}
                         </div>
                       </Link>
                     )
                   })}
-                  {allAccounts.length > 3 && (
+                  {visibleAccounts.length > 3 && (
                     <button
                       onClick={() => setAccountsShowAll(!accountsShowAll)}
                       className="w-full px-3 py-1.5 text-[11px] font-medium text-sidebar-muted/70 hover:text-sidebar-foreground transition-colors text-center"
@@ -479,8 +473,8 @@ export function AppLayout() {
                       {accountsShowAll
                         ? t('common.showLess', { defaultValue: 'Show less' })
                         : t('common.showMore', {
-                            count: allAccounts.length - 3,
-                            defaultValue: `+${allAccounts.length - 3} more`,
+                            count: visibleAccounts.length - 3,
+                            defaultValue: `+${visibleAccounts.length - 3} more`,
                           })}
                     </button>
                   )}
@@ -499,20 +493,11 @@ export function AppLayout() {
               account actions that used to live in a separate dropdown. */}
           <div className="px-3 pt-1">
             <WorkspaceSwitcher
-              backingUp={backingUp}
               onChangePassword={() => setChangePasswordOpen(true)}
               onTwoFactor={() => setTwoFactorOpen(true)}
-              onBackup={async () => {
-                setBackingUp(true)
-                try {
-                  await backupApi.download()
-                  toast.success(t('backup.success'))
-                } catch {
-                  toast.error(t('backup.error'))
-                } finally {
-                  setBackingUp(false)
-                }
-              }}
+              onPasskeys={() => setPasskeysOpen(true)}
+              localAuthEnabled={localAuthEnabled}
+              onBackup={() => setBackupOpen(true)}
               onUpdateAvailable={() => setUpdateDialogOpen(true)}
               agentsEnabled={agentsEnabled}
             />
@@ -534,25 +519,37 @@ export function AppLayout() {
         {/* Main content */}
         <main className="flex-1 min-h-screen overflow-x-hidden lg:ml-60">
           <div className="p-6 max-w-7xl mx-auto">
+            {/* Active-collection filter (issue #105): sticky bar above the
+                content so the scope is visible right where the data is. */}
+            <CollectionSelector variant="header" />
             <Outlet />
           </div>
         </main>
       </div>
 
       {showTour && <OnboardingTour onComplete={handleTourComplete} />}
-      <ChangePasswordDialog
-        open={changePasswordOpen}
-        onClose={() => setChangePasswordOpen(false)}
-      />
-      <TwoFactorSetup
-        open={twoFactorOpen}
-        onClose={() => setTwoFactorOpen(false)}
-      />
+      {localAuthEnabled && (
+        <>
+          <ChangePasswordDialog
+            open={changePasswordOpen}
+            onClose={() => setChangePasswordOpen(false)}
+          />
+          <TwoFactorSetup
+            open={twoFactorOpen}
+            onClose={() => setTwoFactorOpen(false)}
+          />
+          <PasskeyManagementDialog
+            open={passkeysOpen}
+            onClose={() => setPasskeysOpen(false)}
+          />
+        </>
+      )}
+      <BackupDialog open={backupOpen} onClose={() => setBackupOpen(false)} />
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       {/* Slide-over global chat — opened from the sidebar pill or via
           ⌘J. The previous floating bottom-right button was removed
           since the entry point now lives in the sidebar next to ⌘K. */}
-      {agentsEnabled && <GlobalChatPanel open={chatOpen} onOpenChange={setChatOpen} />}
+      {chatAvailable && <GlobalChatPanel open={chatOpen} onOpenChange={setChatOpen} />}
       <UpdateAvailableDialog
         open={updateDialogOpen}
         onClose={() => setUpdateDialogOpen(false)}
@@ -566,8 +563,9 @@ function UserMenu({
   logout,
   onChangePassword,
   onTwoFactor,
+  onPasskeys,
+  localAuthEnabled,
   onBackup,
-  backingUp,
   dark,
   isAdmin,
   agentsEnabled,
@@ -576,8 +574,9 @@ function UserMenu({
   logout: () => void
   onChangePassword: () => void
   onTwoFactor: () => void
+  onPasskeys: () => void
+  localAuthEnabled: boolean
   onBackup: () => void
-  backingUp: boolean
   dark?: boolean
   isAdmin?: boolean
   agentsEnabled?: boolean
@@ -588,7 +587,7 @@ function UserMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="relative h-8 w-8 rounded-full p-0">
+        <Button variant="ghost" className="relative h-8 w-8 rounded-full p-0" aria-label={t('common.userMenu')}>
           <Avatar className="h-8 w-8">
             <AvatarFallback
               className={
@@ -615,27 +614,37 @@ function UserMenu({
             <DropdownMenuSeparator />
           </>
         )}
+        {localAuthEnabled && (
+          <>
+            <DropdownMenuItem
+              onClick={onChangePassword}
+              className="flex items-center gap-2"
+            >
+              <KeyRound size={14} />
+              {t('auth.changePassword')}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={onTwoFactor}
+              className="flex items-center gap-2"
+            >
+              <ShieldCheck size={14} />
+              {t('auth.twoFactorTitle')}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={onPasskeys}
+              className="flex items-center gap-2"
+            >
+              <Fingerprint size={14} />
+              {t('auth.passkeysTitle')}
+            </DropdownMenuItem>
+          </>
+        )}
         <DropdownMenuItem
-          onClick={onChangePassword}
-          className="flex items-center gap-2"
-        >
-          <KeyRound size={14} />
-          {t('auth.changePassword')}
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={onTwoFactor}
-          className="flex items-center gap-2"
-        >
-          <ShieldCheck size={14} />
-          {t('auth.twoFactorTitle')}
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          disabled={backingUp}
           onClick={onBackup}
           className="flex items-center gap-2"
         >
           <HardDriveDownload size={14} />
-          {backingUp ? t('backup.downloading') : t('backup.button')}
+          {t('backup.button')}
         </DropdownMenuItem>
         {agentsEnabled && (
           <DropdownMenuItem
@@ -660,11 +669,47 @@ function UserMenu({
                 {t('setup.language')}
               </DropdownMenuLabel>
               <DropdownMenuItem
+                onClick={() => i18n.changeLanguage('ru')}
+                className="flex items-center gap-2"
+              >
+                <span className="flex-1">Русский</span>
+                {currentLang === 'ru' && (
+                  <Check size={13} className="text-primary" />
+                )}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => i18n.changeLanguage('de')}
+                className="flex items-center gap-2"
+              >
+                <span className="flex-1">Deutsch</span>
+                {currentLang === 'de' && (
+                  <Check size={13} className="text-primary" />
+                )}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => i18n.changeLanguage('uk')}
+                className="flex items-center gap-2"
+              >
+                <span className="flex-1">Українська</span>
+                {currentLang === 'uk' && (
+                  <Check size={13} className="text-primary" />
+                )}
+              </DropdownMenuItem>
+              <DropdownMenuItem
                 onClick={() => i18n.changeLanguage('pt-BR')}
                 className="flex items-center gap-2"
               >
-                <span className="flex-1">Português</span>
+                <span className="flex-1">Português (BR)</span>
                 {currentLang === 'pt-BR' && (
+                  <Check size={13} className="text-primary" />
+                )}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => i18n.changeLanguage('pt-PT')}
+                className="flex items-center gap-2"
+              >
+                <span className="flex-1">Português (PT)</span>
+                {currentLang === 'pt-PT' && (
                   <Check size={13} className="text-primary" />
                 )}
               </DropdownMenuItem>
@@ -692,6 +737,42 @@ function UserMenu({
               >
                 <span className="flex-1">Polski</span>
                 {currentLang === 'pl' && (
+                  <Check size={13} className="text-primary" />
+                )}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => i18n.changeLanguage('it')}
+                className="flex items-center gap-2"
+              >
+                <span className="flex-1">Italiano</span>
+                {currentLang === 'it' && (
+                  <Check size={13} className="text-primary" />
+                )}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => i18n.changeLanguage('fr')}
+                className="flex items-center gap-2"
+              >
+                <span className="flex-1">Français</span>
+                {currentLang === 'fr' && (
+                  <Check size={13} className="text-primary" />
+                )}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => i18n.changeLanguage('nl')}
+                className="flex items-center gap-2"
+              >
+                <span className="flex-1">Nederlands</span>
+                {currentLang === 'nl' && (
+                  <Check size={13} className="text-primary" />
+                )}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => i18n.changeLanguage('sk')}
+                className="flex items-center gap-2"
+              >
+                <span className="flex-1">Slovenčina</span>
+                {currentLang === 'sk' && (
                   <Check size={13} className="text-primary" />
                 )}
               </DropdownMenuItem>
