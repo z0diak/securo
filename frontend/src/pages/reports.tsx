@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useDisplayLocale } from '@/hooks/use-display-locale'
+import { useDateLocale, useDisplayLocale } from '@/hooks/use-display-locale'
 import { useQuery } from '@tanstack/react-query'
 import {
   AreaChart,
@@ -26,10 +26,12 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover
 import { DateRangePicker } from '@/components/ui/date-range-picker'
 import { PageHeader } from '@/components/page-header'
 import { CashflowSankey } from '@/components/reports/CashflowSankey'
+import { CategorySpendingSmallMultiples } from '@/components/reports/CategorySpendingSmallMultiples'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 import { useCollectionFilter } from '@/contexts/collection-filter-context'
-import type { ReportResponse, CategoryTrendItem } from '@/types'
+import { TransactionDrillDown, type DrillDownFilter } from '@/components/transaction-drill-down'
+import type { CategorySpendingMatrixResponse, CategoryTrendItem, ReportResponse } from '@/types'
 import { formatCurrency } from '@/lib/format'
 import { localDateString } from '@/lib/date-utils'
 
@@ -60,6 +62,24 @@ function formatCompact(value: number, currency = 'USD', locale = 'en-US') {
     notation: 'compact',
     maximumFractionDigits: 1,
   }).format(value)
+}
+
+function formatWholeCurrency(value: number, currency = 'USD', locale = 'en-US') {
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(value)
+  } catch {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(value)
+  }
 }
 
 
@@ -164,6 +184,11 @@ const REPORT_TABS: ReportTab[] = [
     supportsCustomRange: true, fallbackRangeKey: '1y', fallbackInterval: 'monthly',
   },
   {
+    key: 'category_spending', labelKey: 'reports.categorySpending', enabled: true,
+    rangeOptions: HISTORICAL_RANGE_OPTIONS, intervalOptions: [{ key: 'monthly', value: 'monthly' }],
+    supportsCustomRange: false, fallbackRangeKey: '1y', fallbackInterval: 'monthly',
+  },
+  {
     key: 'cash_flow', labelKey: 'reports.cashFlow', enabled: true,
     rangeOptions: FORWARD_RANGE_OPTIONS, intervalOptions: CASH_FLOW_INTERVAL_OPTIONS,
     supportsCustomRange: false, fallbackRangeKey: '6m', fallbackInterval: 'daily',
@@ -181,6 +206,7 @@ export default function ReportsPage() {
   const { user } = useAuth()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const locale = useDisplayLocale()
+  const dateLocale = useDateLocale()
 
   const customDefaults = defaultCustomRange()
   const [rangeKey, setRangeKey] = useState('1y')
@@ -196,6 +222,8 @@ export default function ReportsPage() {
   const [sparklineView, setSparklineView] = useState<'byExpenses' | 'byIncome'>('byExpenses')
   const [sparklinePage, setSparklinePage] = useState(0)
   const [cashFlowBaseline, setCashFlowBaseline] = useState(false)
+  const [showVariance, setShowVariance] = useState(true)
+  const [drillDown, setDrillDown] = useState<DrillDownFilter | null>(null)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   // Active Collection filter (issue #105): scope all report tabs to its
   // accounts; net worth also includes the collection's wallets' assets.
@@ -210,6 +238,7 @@ export default function ReportsPage() {
   const currentTab = REPORT_TABS.find((tab) => tab.key === activeTab) ?? REPORT_TABS[0]
 
   const isCashFlow = activeTab === 'cash_flow'
+  const isCategorySpending = activeTab === 'category_spending'
   // The Money Map (Sankey) tab is driven by the same income/expenses
   // composition, aggregated over the selected historical range.
   const isMoneyMap = activeTab === 'money_map'
@@ -260,6 +289,7 @@ export default function ReportsPage() {
     if (!nextTab.intervalOptions.some((i) => i.value === interval)) {
       setInterval(nextTab.fallbackInterval)
     }
+    if (key === 'category_spending') setInterval('monthly')
   }
 
   const { data, isLoading, isError, error, refetch } = useQuery<ReportResponse>({
