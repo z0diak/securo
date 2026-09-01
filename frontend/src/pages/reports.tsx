@@ -1,6 +1,6 @@
-import { Fragment, useMemo, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useDisplayLocale } from '@/hooks/use-display-locale'
+import { useDateLocale, useDisplayLocale } from '@/hooks/use-display-locale'
 import { useQuery } from '@tanstack/react-query'
 import {
   AreaChart,
@@ -18,18 +18,18 @@ import {
   ReferenceLine,
   ResponsiveContainer,
 } from 'recharts'
-import { ArrowDown, ArrowUp, HelpCircle, Minus, X } from 'lucide-react'
+import { HelpCircle, X } from 'lucide-react'
 import { reports } from '@/lib/api'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { PageHeader } from '@/components/page-header'
 import { CashflowSankey } from '@/components/reports/CashflowSankey'
+import { CategorySpendingSmallMultiples } from '@/components/reports/CategorySpendingSmallMultiples'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 import { useCollectionFilter } from '@/contexts/collection-filter-context'
-import { CategoryIcon } from '@/components/category-icon'
 import { TransactionDrillDown, type DrillDownFilter } from '@/components/transaction-drill-down'
-import type { CategorySpendingMatrixResponse, CategorySpendingRow, CategoryTrendItem, ReportResponse } from '@/types'
+import type { CategorySpendingMatrixResponse, CategoryTrendItem, ReportResponse } from '@/types'
 import { formatCurrency } from '@/lib/format'
 
 // A small qualitative palette of well-separated hues for the composition
@@ -59,6 +59,24 @@ function formatCompact(value: number, currency = 'USD', locale = 'en-US') {
     notation: 'compact',
     maximumFractionDigits: 1,
   }).format(value)
+}
+
+function formatWholeCurrency(value: number, currency = 'USD', locale = 'en-US') {
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(value)
+  } catch {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(value)
+  }
 }
 
 
@@ -140,6 +158,7 @@ export default function ReportsPage() {
   const { user } = useAuth()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const locale = useDisplayLocale()
+  const dateLocale = useDateLocale()
 
   const [rangeKey, setRangeKey] = useState('1y')
   const [interval, setInterval] = useState('monthly')
@@ -580,14 +599,16 @@ export default function ReportsPage() {
       </div>
 
       {isCategorySpending ? (
-        <CategorySpendingReport
+        <CategorySpendingSmallMultiples
           data={categoryData}
           isLoading={categoryLoading}
           showVariance={showVariance}
           onShowVarianceChange={setShowVariance}
           onDrillDown={setDrillDown}
           formatCurrency={(value, currency = userCurrency) => formatCurrency(value, currency, locale)}
+          formatMetricCurrency={(value, currency = userCurrency) => formatWholeCurrency(value, currency, locale)}
           mask={mask}
+          locale={dateLocale}
           t={t}
         />
       ) : (
@@ -1493,307 +1514,6 @@ export default function ReportsPage() {
       </>
       )}
       <TransactionDrillDown filter={drillDown} onClose={() => setDrillDown(null)} />
-    </div>
-  )
-}
-
-function CategorySpendingReport({
-  data,
-  isLoading,
-  showVariance,
-  onShowVarianceChange,
-  onDrillDown,
-  formatCurrency,
-  mask,
-  t,
-}: {
-  data?: CategorySpendingMatrixResponse
-  isLoading: boolean
-  showVariance: boolean
-  onShowVarianceChange: (value: boolean) => void
-  onDrillDown: (filter: DrillDownFilter) => void
-  formatCurrency: (value: number, currency?: string) => string
-  mask: (value: string) => string
-  t: ReturnType<typeof useTranslation>['t']
-}) {
-  const currency = data?.meta.currency ?? 'USD'
-  const periods = useMemo(() => data?.periods ?? [], [data?.periods])
-  const displayedPeriods = useMemo(() => [...periods].reverse(), [periods])
-  const rows = useMemo(() => data?.rows ?? [], [data?.rows])
-  const groupedRows = useMemo(() => {
-    const groups = new Map<string, {
-      key: string
-      name: string
-      latestAmount: number
-      averageAmount: number
-      periodTotals: Record<string, number>
-      rows: CategorySpendingRow[]
-    }>()
-
-    for (const row of rows) {
-      const key = row.group_id ?? 'ungrouped'
-      if (!groups.has(key)) {
-        groups.set(key, {
-          key,
-          name: row.group_name ?? t('reports.noGroup'),
-          latestAmount: 0,
-          averageAmount: 0,
-          periodTotals: {},
-          rows: [],
-        })
-      }
-      const group = groups.get(key)!
-      group.rows.push(row)
-      for (const period of periods) {
-        group.periodTotals[period.key] = (
-          group.periodTotals[period.key] ?? 0
-        ) + (row.periods[period.key]?.actual_amount ?? 0)
-      }
-    }
-
-    const sortedGroups = Array.from(groups.values())
-    for (const group of sortedGroups) {
-      group.latestAmount = periods[0] ? group.periodTotals[periods[0].key] ?? 0 : 0
-      const totalAcrossPeriods = periods.reduce(
-        (sum, period) => sum + (group.periodTotals[period.key] ?? 0),
-        0
-      )
-      group.averageAmount = periods.length > 0 ? totalAcrossPeriods / periods.length : 0
-      group.rows.sort((a, b) => b.latest_amount - a.latest_amount)
-    }
-    sortedGroups.sort((a, b) => b.latestAmount - a.latestAmount)
-    return sortedGroups
-  }, [periods, rows, t])
-  const tableWidth = useMemo(
-    () => Math.max(760, 240 + 116 + displayedPeriods.length * 140),
-    [displayedPeriods.length]
-  )
-  const topScrollRef = useRef<HTMLDivElement>(null)
-  const headerScrollRef = useRef<HTMLDivElement>(null)
-  const tableScrollRef = useRef<HTMLDivElement>(null)
-  const syncingScroll = useRef(false)
-
-  const syncScroll = (source: 'top' | 'table') => {
-    if (syncingScroll.current) return
-    const from = source === 'top' ? topScrollRef.current : tableScrollRef.current
-    if (!from) return
-    syncingScroll.current = true
-    for (const target of [topScrollRef.current, headerScrollRef.current, tableScrollRef.current]) {
-      if (target && target !== from) {
-        target.scrollLeft = from.scrollLeft
-      }
-    }
-    requestAnimationFrame(() => {
-      syncingScroll.current = false
-    })
-  }
-
-  const monthEnd = (exclusiveEnd: string) => {
-    const [year, month, day] = exclusiveEnd.split('-').map(Number)
-    const d = new Date(Date.UTC(year, month - 1, day))
-    d.setUTCDate(d.getUTCDate() - 1)
-    return d.toISOString().slice(0, 10)
-  }
-
-  return (
-    <div className="bg-card rounded-xl border border-border shadow-sm">
-      <div className="flex justify-end border-b border-border px-4 py-3">
-        <div className="flex items-center gap-2">
-          <label className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs font-semibold text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={showVariance}
-              onChange={(event) => onShowVarianceChange(event.target.checked)}
-              className="h-3.5 w-3.5 accent-primary"
-            />
-            {t('reports.budgetVariance')}
-          </label>
-        </div>
-      </div>
-
-      <div className="sticky top-0 z-40 bg-card shadow-sm">
-        <div
-          ref={topScrollRef}
-          onScroll={() => syncScroll('top')}
-          className="h-6 overflow-x-auto border-b border-border bg-card"
-          aria-label={t('reports.horizontalScroll')}
-        >
-          <div style={{ width: tableWidth, height: 1 }} />
-        </div>
-
-        <div ref={headerScrollRef} className="overflow-hidden border-b border-border">
-          <table
-            className="w-full table-fixed border-separate border-spacing-0 text-sm"
-            style={{ minWidth: tableWidth }}
-          >
-            <colgroup>
-              <col style={{ width: 240 }} />
-              <col style={{ width: 116 }} />
-              {displayedPeriods.map((period) => (
-                <col key={period.key} style={{ width: 140 }} />
-              ))}
-            </colgroup>
-            <thead>
-              <tr className="bg-muted text-[11px] uppercase text-muted-foreground">
-                <th className="sticky left-0 z-20 w-[240px] bg-muted px-4 py-3 text-left font-semibold">
-                  {t('reports.category')}
-                </th>
-                <th className="w-[116px] bg-muted px-3 py-3 text-right font-semibold">{t('reports.average')}</th>
-                {displayedPeriods.map((period) => (
-                  <th key={period.key} className="w-[140px] bg-muted px-3 py-3 text-right font-semibold">
-                    {period.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-          </table>
-        </div>
-      </div>
-
-      <div
-        ref={tableScrollRef}
-        onScroll={() => syncScroll('table')}
-        className="overflow-x-auto"
-      >
-        <table
-          className="w-full table-fixed border-separate border-spacing-0 text-sm"
-          style={{ minWidth: tableWidth }}
-        >
-          <colgroup>
-            <col style={{ width: 240 }} />
-            <col style={{ width: 116 }} />
-            {displayedPeriods.map((period) => (
-              <col key={period.key} style={{ width: 140 }} />
-            ))}
-          </colgroup>
-          <tbody>
-            {isLoading ? (
-              Array.from({ length: 6 }).map((_, idx) => (
-                <tr key={idx}>
-                  <td className="sticky left-0 z-10 bg-card px-4 py-3">
-                    <Skeleton className="h-9 w-44" />
-                  </td>
-                  <td colSpan={1 + displayedPeriods.length} className="px-3 py-3">
-                    <Skeleton className="h-9 w-full" />
-                  </td>
-                </tr>
-              ))
-            ) : groupedRows.length === 0 ? (
-              <tr>
-                <td colSpan={2 + displayedPeriods.length} className="px-4 py-16 text-center text-sm text-muted-foreground">
-                  {t('reports.noData')}
-                </td>
-              </tr>
-            ) : (
-              groupedRows.map((group) => (
-                <Fragment key={group.key}>
-                  <tr className="bg-muted/40">
-                    <td className="sticky left-0 z-20 border-t border-border bg-muted px-4 py-2.5">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-bold text-foreground">{group.name}</div>
-                      </div>
-                    </td>
-                    <td className="border-t border-border px-3 py-2.5 text-right font-bold tabular-nums text-foreground">
-                      {mask(formatCurrency(group.averageAmount, currency))}
-                    </td>
-                    {displayedPeriods.map((period) => (
-                      <td key={period.key} className="border-t border-border px-3 py-2.5 text-right font-bold tabular-nums text-foreground">
-                        {mask(formatCurrency(group.periodTotals[period.key] ?? 0, currency))}
-                      </td>
-                    ))}
-                  </tr>
-                  {group.rows.map((row) => (
-                    <tr key={row.category_id} className="group">
-                      <td className="sticky left-0 z-10 border-t border-border bg-card px-4 py-2.5 group-hover:bg-muted/30">
-                        <div className="flex min-w-0 items-center gap-3 pl-3">
-                          <CategoryIcon icon={row.category_icon} color={row.category_color} size="sm" />
-                          <div className="min-w-0">
-                            <div className="truncate font-semibold text-foreground">{row.category_name}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="border-t border-border px-3 py-2.5 text-right tabular-nums text-muted-foreground">
-                        {mask(formatCurrency(row.average_amount, currency))}
-                      </td>
-                      {displayedPeriods.map((period) => {
-                        const value = row.periods[period.key] ?? { actual_amount: 0, status: 'no_budget' as const }
-                        return (
-                          <td key={period.key} className="border-t border-border px-2 py-2 text-right">
-                            <button
-                              type="button"
-                              className="w-full rounded-lg px-2 py-1.5 text-right transition-colors hover:bg-muted/60"
-                              onClick={() => onDrillDown({
-                                title: t('reports.drillDownCategory', { category: row.category_name, month: period.label }),
-                                category_id: row.category_id,
-                                type: 'debit',
-                                from: period.start,
-                                to: monthEnd(period.end),
-                              })}
-                            >
-                              <div className="font-semibold tabular-nums text-foreground">
-                                {mask(formatCurrency(value.actual_amount, currency))}
-                              </div>
-                              {showVariance && (
-                                <VarianceLine value={value} mask={mask} formatCurrency={(amount) => formatCurrency(amount, currency)} t={t} />
-                              )}
-                            </button>
-                          </td>
-                        )
-                      })}
-                    </tr>
-                  ))}
-                </Fragment>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
-
-function VarianceLine({
-  value,
-  mask,
-  formatCurrency,
-  t,
-}: {
-  value: {
-    budget_amount?: number | null
-    variance_amount?: number | null
-    percentage_used?: number | null
-    status: string
-  }
-  mask: (value: string) => string
-  formatCurrency: (value: number) => string
-  t: ReturnType<typeof useTranslation>['t']
-}) {
-  if (value.budget_amount == null || value.variance_amount == null) {
-    return (
-      <div className="mt-1 flex items-center justify-end gap-1 text-[11px] text-muted-foreground">
-        <Minus className="h-3 w-3" />
-        {t('reports.noBudget')}
-      </div>
-    )
-  }
-
-  const under = value.variance_amount < 0
-  const over = value.variance_amount > 0
-  const Icon = over ? ArrowUp : under ? ArrowDown : Minus
-  const color = over ? 'text-rose-600' : under ? 'text-emerald-600' : 'text-muted-foreground'
-  const barColor = over ? 'bg-rose-500' : under ? 'bg-emerald-500' : 'bg-muted-foreground'
-  const percent = Math.min(Math.max(value.percentage_used ?? 0, 0), 125)
-
-  return (
-    <div className="mt-1">
-      <div className={`flex items-center justify-end gap-1 text-[11px] font-medium tabular-nums ${color}`}>
-        <Icon className="h-3 w-3" />
-        {over ? t('reports.overBudget') : under ? t('reports.underBudget') : t('reports.onBudget')}
-        <span>{mask(formatCurrency(Math.abs(value.variance_amount)))}</span>
-      </div>
-      <div className="ml-auto mt-1 h-1 w-20 overflow-hidden rounded-full bg-muted">
-        <div className={`h-full ${barColor}`} style={{ width: `${percent}%` }} />
-      </div>
     </div>
   )
 }
