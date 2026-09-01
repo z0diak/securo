@@ -65,6 +65,7 @@ import type {
   MonthlyTrend,
   BalanceHistory,
   PaginatedTransactions,
+  CategorySpendingMatrixResponse,
   ReportResponse,
   Group,
   GroupKind,
@@ -1291,6 +1292,10 @@ export const reports = {
   cashFlow: async (months = 6, interval = 'daily', baseline = false, accountIds?: string[]): Promise<ReportResponse> => {
     const extra = acctIdsParam(accountIds)
     const { data } = await api.get('/reports/cash-flow', { params: { months, interval, baseline, ...(extra.params ?? {}) }, ...(extra.paramsSerializer ? { paramsSerializer: extra.paramsSerializer } : {}) })
+    return data
+  },
+  categorySpending: async (months = 12, interval = 'monthly', period?: 'ytd'): Promise<CategorySpendingMatrixResponse> => {
+    const { data } = await api.get('/reports/category-spending', { params: { months, interval, period, type: 'expenses' } })
     return data
   },
 }
