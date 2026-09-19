@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_async_session
 from app.core.workspace_context import WorkspaceContext, current_workspace
-from app.schemas.report import ReportResponse
+from app.schemas.report import CategorySpendingMatrixResponse, ReportResponse
 from app.services import report_service
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -42,6 +42,27 @@ async def get_income_expenses(
     return await report_service.get_income_expenses_report(
         session, ctx.workspace.id, ctx.user_id, months, interval, ctx.user.primary_currency,
         account_ids=account_ids, period=period, days=days,
+    )
+
+
+@router.get("/category-spending", response_model=CategorySpendingMatrixResponse)
+async def get_category_spending(
+    months: int = Query(12, ge=1, le=24),
+    interval: str = Query("monthly", pattern="^monthly$"),
+    period: str | None = Query(None, pattern="^ytd$"),
+    type: str = Query("expenses", pattern="^expenses$"),
+    ctx: WorkspaceContext = Depends(current_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    return await report_service.get_category_spending_matrix(
+        session,
+        ctx.workspace.id,
+        ctx.user_id,
+        months,
+        interval,
+        ctx.user.primary_currency,
+        period=period,
+        report_type=type,
     )
 
 

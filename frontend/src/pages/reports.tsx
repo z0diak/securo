@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useDisplayLocale } from '@/hooks/use-display-locale'
+import { useDateLocale, useDisplayLocale } from '@/hooks/use-display-locale'
 import { useQuery } from '@tanstack/react-query'
 import {
   AreaChart,
@@ -24,10 +24,12 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { PageHeader } from '@/components/page-header'
 import { CashflowSankey } from '@/components/reports/CashflowSankey'
+import { CategorySpendingSmallMultiples } from '@/components/reports/CategorySpendingSmallMultiples'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 import { useCollectionFilter } from '@/contexts/collection-filter-context'
-import type { ReportResponse, CategoryTrendItem } from '@/types'
+import { TransactionDrillDown, type DrillDownFilter } from '@/components/transaction-drill-down'
+import type { CategorySpendingMatrixResponse, CategoryTrendItem, ReportResponse } from '@/types'
 import { formatCurrency } from '@/lib/format'
 
 // A small qualitative palette of well-separated hues for the composition
@@ -57,6 +59,24 @@ function formatCompact(value: number, currency = 'USD', locale = 'en-US') {
     notation: 'compact',
     maximumFractionDigits: 1,
   }).format(value)
+}
+
+function formatWholeCurrency(value: number, currency = 'USD', locale = 'en-US') {
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(value)
+  } catch {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(value)
+  }
 }
 
 
@@ -127,6 +147,7 @@ interface ReportTab {
 const REPORT_TABS: ReportTab[] = [
   { key: 'net_worth', labelKey: 'reports.netWorth', enabled: true },
   { key: 'income_expenses', labelKey: 'reports.incomeExpenses', enabled: true },
+  { key: 'category_spending', labelKey: 'reports.categorySpending', enabled: true },
   { key: 'cash_flow', labelKey: 'reports.cashFlow', enabled: true },
   { key: 'money_map', labelKey: 'reports.moneyMap', enabled: true },
 ]
@@ -137,6 +158,7 @@ export default function ReportsPage() {
   const { user } = useAuth()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const locale = useDisplayLocale()
+  const dateLocale = useDateLocale()
 
   const [rangeKey, setRangeKey] = useState('1y')
   const [interval, setInterval] = useState('monthly')
@@ -145,6 +167,8 @@ export default function ReportsPage() {
   const [sparklineView, setSparklineView] = useState<'byExpenses' | 'byIncome'>('byExpenses')
   const [sparklinePage, setSparklinePage] = useState(0)
   const [cashFlowBaseline, setCashFlowBaseline] = useState(false)
+  const [showVariance, setShowVariance] = useState(true)
+  const [drillDown, setDrillDown] = useState<DrillDownFilter | null>(null)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   // Active Collection filter (issue #105): scope all report tabs to its
   // accounts; net worth also includes the collection's wallets' assets.
@@ -159,6 +183,7 @@ export default function ReportsPage() {
   const currentTab = REPORT_TABS.find((tab) => tab.key === activeTab) ?? REPORT_TABS[0]
 
   const isCashFlow = activeTab === 'cash_flow'
+  const isCategorySpending = activeTab === 'category_spending'
   // The Money Map (Sankey) tab is driven by the same income/expenses
   // composition, aggregated over the selected historical range.
   const isMoneyMap = activeTab === 'money_map'
@@ -167,7 +192,11 @@ export default function ReportsPage() {
     : isMoneyMap
       ? MONEY_MAP_RANGE_OPTIONS
       : HISTORICAL_RANGE_OPTIONS
-  const intervalOptions = isCashFlow ? CASH_FLOW_INTERVAL_OPTIONS : HISTORICAL_INTERVAL_OPTIONS
+  const intervalOptions = isCashFlow
+    ? CASH_FLOW_INTERVAL_OPTIONS
+    : isCategorySpending
+      ? [{ key: 'monthly', value: 'monthly' }] as const
+      : HISTORICAL_INTERVAL_OPTIONS
   const selectedRange = rangeOptions.find((r) => r.key === rangeKey) ?? rangeOptions[0]
   const months = selectedRange.months
   const period = selectedRange.period
@@ -187,10 +216,15 @@ export default function ReportsPage() {
     if (!nextRanges.some((r) => r.key === rangeKey)) {
       setRangeKey(key === 'cash_flow' ? '6m' : key === 'money_map' ? '3m' : '1y')
     }
-    const nextIntervals = key === 'cash_flow' ? CASH_FLOW_INTERVAL_OPTIONS : HISTORICAL_INTERVAL_OPTIONS
+    const nextIntervals = key === 'cash_flow'
+      ? CASH_FLOW_INTERVAL_OPTIONS
+      : key === 'category_spending'
+        ? [{ key: 'monthly', value: 'monthly' }] as const
+        : HISTORICAL_INTERVAL_OPTIONS
     if (!nextIntervals.some((i) => i.value === interval)) {
       setInterval(key === 'cash_flow' ? 'daily' : 'monthly')
     }
+    if (key === 'category_spending') setInterval('monthly')
   }
 
   const { data, isLoading } = useQuery<ReportResponse>({
@@ -201,7 +235,13 @@ export default function ReportsPage() {
         : activeTab === 'income_expenses' || isMoneyMap
           ? reports.incomeExpenses(months, interval, acctIds, period, days)
           : reports.netWorth(months, interval, acctIds, walletIds, period),
-    enabled: currentTab.enabled && !(noAccounts && activeTab !== 'net_worth'),
+    enabled: currentTab.enabled && !isCategorySpending && !(noAccounts && activeTab !== 'net_worth'),
+  })
+
+  const { data: categoryData, isLoading: categoryLoading } = useQuery<CategorySpendingMatrixResponse>({
+    queryKey: ['reports', 'category-spending', rangeKey, months, period ?? null],
+    queryFn: () => reports.categorySpending(months, 'monthly', period),
+    enabled: isCategorySpending && !noAccounts,
   })
 
   const summary = data?.summary
@@ -558,6 +598,21 @@ export default function ReportsPage() {
         ))}
       </div>
 
+      {isCategorySpending ? (
+        <CategorySpendingSmallMultiples
+          data={categoryData}
+          isLoading={categoryLoading}
+          showVariance={showVariance}
+          onShowVarianceChange={setShowVariance}
+          onDrillDown={setDrillDown}
+          formatCurrency={(value, currency = userCurrency) => formatCurrency(value, currency, locale)}
+          formatMetricCurrency={(value, currency = userCurrency) => formatWholeCurrency(value, currency, locale)}
+          mask={mask}
+          locale={dateLocale}
+          t={t}
+        />
+      ) : (
+      <>
       {/* Hero Card */}
       <div className="bg-card rounded-xl border border-border shadow-sm mb-5">
         <div className="px-5 py-4">
@@ -1456,6 +1511,9 @@ export default function ReportsPage() {
       </div>
       </>
       )}
+      </>
+      )}
+      <TransactionDrillDown filter={drillDown} onClose={() => setDrillDown(null)} />
     </div>
   )
 }

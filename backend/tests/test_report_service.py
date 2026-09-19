@@ -9,9 +9,13 @@ from app.models.account import Account
 from app.models.asset import Asset
 from app.models.asset_value import AssetValue
 from app.models.bank_connection import BankConnection
+from app.models.budget import Budget
+from app.models.category import Category
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.schemas.report import (
+    CategorySpendingMatrixResponse,
+    CategorySpendingMeta,
     CategoryTrendItem,
     ReportDataPoint,
     ReportMeta,
@@ -26,6 +30,7 @@ from app.services.report_service import (
     _format_date_label,
     _net_worth_at,
     _report_start_date,
+    get_category_spending_matrix,
     get_cash_flow_report,
     get_net_worth_report,
 )
@@ -364,6 +369,108 @@ async def test_net_worth_report_ytd_starts_at_current_year(
     assert all(point.date.startswith(str(date.today().year)) for point in report.trend)
 
 
+@pytest.mark.asyncio
+async def test_category_spending_matrix_returns_newest_periods_and_variance(
+    session: AsyncSession, test_user, test_workspace
+):
+    account = await _create_manual_account(session, test_user.id, "Category Matrix")
+    category = Category(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        name="Groceries",
+        icon="ShoppingCart",
+        color="#10B981",
+    )
+    session.add(category)
+
+    current_month = date.today().replace(day=1)
+    previous_month = _add_months(current_month, -1)
+    session.add_all([
+        Budget(
+            id=uuid.uuid4(),
+            user_id=test_user.id,
+            workspace_id=test_workspace.id,
+            category_id=category.id,
+            amount=Decimal("200.00"),
+            month=current_month,
+            is_recurring=False,
+        ),
+        Budget(
+            id=uuid.uuid4(),
+            user_id=test_user.id,
+            workspace_id=test_workspace.id,
+            category_id=category.id,
+            amount=Decimal("70.00"),
+            month=previous_month,
+            is_recurring=False,
+        ),
+        Transaction(
+            id=uuid.uuid4(),
+            user_id=test_user.id,
+            workspace_id=test_workspace.id,
+            account_id=account.id,
+            category_id=category.id,
+            description="Current groceries",
+            amount=Decimal("150.00"),
+            currency="BRL",
+            date=current_month,
+            type="debit",
+            source="manual",
+            created_at=datetime.now(timezone.utc),
+        ),
+        Transaction(
+            id=uuid.uuid4(),
+            user_id=test_user.id,
+            workspace_id=test_workspace.id,
+            account_id=account.id,
+            category_id=category.id,
+            description="Previous groceries",
+            amount=Decimal("90.00"),
+            currency="BRL",
+            date=previous_month,
+            type="debit",
+            source="manual",
+            created_at=datetime.now(timezone.utc),
+        ),
+    ])
+    await session.commit()
+
+    report = await get_category_spending_matrix(
+        session, test_workspace.id, test_user.id, months=2
+    )
+
+    assert [period.key for period in report.periods] == [
+        f"{current_month.year}-{current_month.month:02d}",
+        f"{previous_month.year}-{previous_month.month:02d}",
+    ]
+    row = report.rows[0]
+    assert row.category_name == "Groceries"
+    assert row.total_amount == 240
+    assert row.average_amount == 120
+    current = row.periods[report.periods[0].key]
+    previous = row.periods[report.periods[1].key]
+    assert current.actual_amount == 150
+    assert current.budget_amount == 200
+    assert current.variance_amount == -50
+    assert current.status == "under"
+    assert previous.actual_amount == 90
+    assert previous.budget_amount == 70
+    assert previous.variance_amount == 20
+    assert previous.status == "over"
+
+
+@pytest.mark.asyncio
+async def test_category_spending_matrix_ytd_periods(session: AsyncSession, test_user, test_workspace):
+    report = await get_category_spending_matrix(
+        session, test_workspace.id, test_user.id, months=24, period="ytd"
+    )
+
+    assert report.periods[0].key == f"{date.today().year}-{date.today().month:02d}"
+    assert report.periods[-1].key == f"{date.today().year}-01"
+    assert len(report.periods) == date.today().month
+
+
 # ---------------------------------------------------------------------------
 # API-level tests: /reports/net-worth
 # ---------------------------------------------------------------------------
@@ -577,6 +684,56 @@ async def test_income_expenses_api_accepts_ytd_period(client, auth_headers, monk
         headers=auth_headers,
     )
     assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_category_spending_api_accepts_ytd_period(client, auth_headers, monkeypatch):
+    """GET /reports/category-spending passes period=ytd to service."""
+
+    async def fake_report(
+        session, workspace_id, user_id, months, interval, currency, period=None, report_type="expenses"
+    ):
+        assert months == 12
+        assert interval == "monthly"
+        assert period == "ytd"
+        assert report_type == "expenses"
+        return CategorySpendingMatrixResponse(
+            periods=[],
+            rows=[],
+            meta=CategorySpendingMeta(
+                currency=currency,
+                interval=interval,
+                type=report_type,
+                period=period,
+            ),
+        )
+
+    monkeypatch.setattr(report_service, "get_category_spending_matrix", fake_report)
+
+    resp = await client.get(
+        "/api/reports/category-spending",
+        params={"period": "ytd", "interval": "monthly", "type": "expenses"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["meta"]["period"] == "ytd"
+
+
+@pytest.mark.asyncio
+async def test_category_spending_api_validation(client, auth_headers):
+    resp = await client.get(
+        "/api/reports/category-spending",
+        params={"interval": "weekly"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 422
+
+    resp = await client.get(
+        "/api/reports/category-spending",
+        params={"type": "income"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
