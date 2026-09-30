@@ -61,8 +61,13 @@ export function CategorySpendingSmallMultiples({
 
   const currency = data?.meta.currency ?? 'USD'
   const cards = useMemo(
-    () => data?.rows.map((row) => categoryCardSummary(row, data.periods)) ?? [],
-    [data],
+    () => data?.rows.map((row) => categoryCardSummary(
+      row.category_id === 'uncategorized'
+        ? { ...row, category_name: t('reports.uncategorized') }
+        : row,
+      data.periods,
+    )) ?? [],
+    [data, t],
   )
   const cardsById = useMemo(
     () => new Map(cards.map((card) => [card.row.category_id, card])),
@@ -469,7 +474,9 @@ function MonthBar({
         category: card.row.category_name,
         month: value.period.label,
       }),
-      category_id: card.row.category_id,
+      ...(card.row.category_id === 'uncategorized'
+        ? { uncategorized: true }
+        : { category_id: card.row.category_id }),
       type: 'debit',
       from: value.period.start,
       to: inclusivePeriodEnd(value.period.end),
