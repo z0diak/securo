@@ -151,6 +151,31 @@ function cardIds(container: HTMLElement): string[] {
 }
 
 describe('CategorySpendingSmallMultiples', () => {
+  it.each([false, true])('shows uncategorized spending and drilldown (mixed: %s)', async (mixed) => {
+    const uncategorized = row('uncategorized', 'API fallback name', '', [0, 50, 0, 130], [null, null, null, null])
+    const { user, onDrillDown } = renderComponent({
+      data: matrix(mixed ? [...defaultRows(), uncategorized] : [uncategorized]),
+    })
+
+    const card = screen.getByTestId('category-card-uncategorized')
+    expect(within(card).getByText(t('reports.uncategorized'))).toBeInTheDocument()
+    expect(screen.queryByText(t('reports.noData'))).not.toBeInTheDocument()
+    if (mixed) expect(screen.getByTestId('category-card-groceries')).toBeInTheDocument()
+
+    await user.click(screen.getByTestId('month-bar-uncategorized-2026-04'))
+    expect(onDrillDown).toHaveBeenCalledWith(expect.objectContaining({
+      uncategorized: true,
+      type: 'debit',
+      from: '2026-04-01',
+      to: '2026-04-30',
+    }))
+    expect(onDrillDown.mock.calls[0][0]).not.toHaveProperty('category_id')
+
+    await user.type(screen.getByLabelText(t('reports.searchCategories')), t('reports.uncategorized'))
+    expect(screen.getByTestId('category-card-uncategorized')).toBeInTheDocument()
+    expect(screen.queryByTestId('category-card-groceries')).not.toBeInTheDocument()
+  })
+
   it('renders card skeletons while loading', () => {
     renderComponent({ isLoading: true, data: undefined })
 

@@ -20,6 +20,7 @@ from app.services._query_filters import (
     counts_as_user_pnl,
     owner_split_offset_by_category,
     reporting_date_col,
+    viewer_shared_spending_by_category,
 )
 from app.services.admin_service import get_credit_card_accounting_mode
 from app.services.account_service import get_account_name
@@ -1210,6 +1211,49 @@ async def get_income_expenses_report(
     )
 
 
+async def _uncategorized_spending(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
+    start: date,
+    end: date,
+    primary_currency: str,
+    accounting_mode: str,
+) -> float:
+    """Uncategorized expenses, with the same visibility and dates as budgets."""
+    report_date = reporting_date_col(accounting_mode)
+    # Uncategorized credits may be income, so do not offset unrelated expenses.
+    result = await session.execute(
+        select(func.sum(func.coalesce(Transaction.amount_primary, Transaction.amount)))
+        .where(
+            Transaction.workspace_id == workspace_id,
+            Transaction.category_id.is_(None),
+            Transaction.type == "debit",
+            Transaction.source != "opening_balance",
+            Transaction.status == "posted",
+            report_date >= start,
+            report_date < end,
+            report_date <= app_today(),
+            counts_as_user_pnl(),
+        )
+    )
+    actual = Decimal(str(result.scalar() or 0))
+    own_offsets = await owner_split_offset_by_category(
+        session, user_id, start, end,
+        use_effective_date=accounting_mode == "accrual",
+        primary_currency=primary_currency,
+        workspace_id=workspace_id,
+    )
+    shared = await viewer_shared_spending_by_category(
+        session, user_id, start, end,
+        use_effective_date=accounting_mode == "accrual",
+        primary_currency=primary_currency,
+    )
+    actual -= Decimal(str(own_offsets.get(None, 0)))
+    actual += Decimal(str(shared.get(None, 0)))
+    return round(float(max(actual, Decimal("0"))), 2)
+
+
 async def get_category_spending_matrix(
     session: AsyncSession,
     workspace_id: uuid.UUID,
@@ -1244,9 +1288,18 @@ async def get_category_spending_matrix(
     ]
 
     rows_by_category: dict[str, dict] = {}
+    accounting_mode = await get_credit_card_accounting_mode(session)
+    uncategorized_periods = {}
 
     for period_info in periods:
         month_start = date.fromisoformat(period_info.start)
+        uncategorized_periods[period_info.key] = CategorySpendingPeriodValue(
+            actual_amount=await _uncategorized_spending(
+                session, workspace_id, user_id, month_start,
+                date.fromisoformat(period_info.end), primary_currency, accounting_mode,
+            ),
+            status="no_budget",
+        )
         comparisons = await get_budget_vs_actual(session, workspace_id, user_id, month_start)
         for item in comparisons:
             cat_id = str(item.category_id)
@@ -1291,6 +1344,17 @@ async def get_category_spending_matrix(
                 status=status,
                 is_recurring_budget=item.is_recurring,
             )
+
+    if any(value.actual_amount > 0 for value in uncategorized_periods.values()):
+        rows_by_category["uncategorized"] = {
+            "category_id": "uncategorized",
+            "category_name": "Uncategorized",
+            "category_icon": "tag",
+            "category_color": "#6B7280",
+            "group_id": None,
+            "group_name": None,
+            "periods": uncategorized_periods,
+        }
 
     rows: list[CategorySpendingRow] = []
     period_keys = [p.key for p in periods]
