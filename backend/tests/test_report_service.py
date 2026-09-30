@@ -16,6 +16,7 @@ from app.models.budget import Budget
 from app.models.category import Category
 from app.models.transaction import Transaction
 from app.models.user import User
+from app.models.workspace import Workspace
 from app.schemas.report import (
     CategorySpendingMatrixResponse,
     CategorySpendingMeta,
@@ -504,6 +505,84 @@ async def test_category_spending_matrix_returns_newest_periods_and_variance(
     assert previous.budget_amount == 70
     assert previous.variance_amount == 20
     assert previous.status == "over"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_category", [False, True])
+async def test_category_spending_includes_uncategorized(
+    session, test_user, test_workspace, monkeypatch, with_category,
+):
+    monkeypatch.setattr(report_service, "app_today", lambda: date(2025, 6, 15))
+    account = await _create_manual_account(session, test_user.id, "Uncategorized report")
+    other_workspace = Workspace(id=uuid.uuid4(), name="Other workspace")
+    session.add(other_workspace)
+    await session.flush()
+    category = Category(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        name="Groceries", icon="tag", color="#10B981",
+    )
+    if with_category:
+        session.add(category)
+
+    def transaction(amount, tx_date, **overrides):
+        fields = dict(
+            id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+            account_id=account.id, description="Report expense",
+            amount=Decimal(amount), currency="BRL", date=tx_date,
+            type="debit", source="manual", status="posted",
+            created_at=datetime.now(timezone.utc),
+        )
+        fields.update(overrides)
+        return Transaction(**fields)
+
+    session.add_all([
+        transaction("100", date(2025, 6, 1)),
+        transaction("20", date(2025, 6, 2), amount_primary=Decimal("30")),
+        transaction("50", date(2025, 5, 1)),
+        transaction("900", date(2025, 6, 1), type="credit"),
+        transaction("900", date(2025, 6, 1), status="pending"),
+        transaction("900", date(2025, 6, 16)),
+        transaction("900", date(2025, 3, 1)),
+        transaction("900", date(2025, 6, 1), is_ignored=True),
+        transaction("900", date(2025, 6, 1), exclude_from_pnl=True),
+        transaction("900", date(2025, 6, 1), transfer_pair_id=uuid.uuid4()),
+        transaction("900", date(2025, 6, 1), workspace_id=other_workspace.id),
+        transaction("900", date(2025, 6, 1), source="opening_balance"),
+        transaction("900", date(2025, 6, 1), effective_bill_date=date(2025, 7, 1)),
+        transaction("10", date(2025, 3, 1), effective_bill_date=date(2025, 5, 1)),
+    ])
+    if with_category:
+        session.add(transaction("70", date(2025, 6, 1), category_id=category.id))
+    await session.commit()
+
+    report = await get_category_spending_matrix(
+        session, test_workspace.id, test_user.id, months=3,
+    )
+    rows = {row.category_id: row for row in report.rows}
+    assert len(rows) == (2 if with_category else 1)
+    row = rows["uncategorized"]
+    assert row.category_name == "Uncategorized"
+    assert row.total_amount == 190
+    assert row.average_amount == 63.33
+    assert row.latest_amount == 130
+    assert row.trend_amount == 130
+    assert row.periods["2025-06"].actual_amount == 130
+    assert row.periods["2025-05"].actual_amount == 60
+    assert row.periods["2025-04"].actual_amount == 0
+    assert all(value.budget_amount is None and value.status == "no_budget"
+               for value in row.periods.values())
+    if with_category:
+        assert rows[str(category.id)].total_amount == 70
+
+
+@pytest.mark.asyncio
+async def test_category_spending_empty_has_no_uncategorized_bucket(
+    session, test_user, test_workspace,
+):
+    report = await get_category_spending_matrix(
+        session, test_workspace.id, test_user.id, months=2,
+    )
+    assert report.rows == []
 
 
 @pytest.mark.asyncio
