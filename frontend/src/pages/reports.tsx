@@ -165,7 +165,7 @@ interface ReportTab {
   enabled: boolean
   rangeOptions: readonly RangeOption[]
   intervalOptions: readonly { key: string; value: string }[]
-  /** Cash flow is a forward-only forecast, so it's the only tab that can't offer a past-only calendar range. */
+  /** Whether this report supports arbitrary historical start/end dates. */
   supportsCustomRange: boolean
   /** Preset selected when switching to this tab drops the current preset, or when Reset+Apply clears a custom range on it. */
   fallbackRangeKey: string
@@ -289,7 +289,6 @@ export default function ReportsPage() {
     if (!nextTab.intervalOptions.some((i) => i.value === interval)) {
       setInterval(nextTab.fallbackInterval)
     }
-    if (key === 'category_spending') setInterval('monthly')
   }
 
   const { data, isLoading, isError, error, refetch } = useQuery<ReportResponse>({
@@ -301,8 +300,15 @@ export default function ReportsPage() {
           ? reports.incomeExpenses(months, interval, acctIds, period, days, apiStart, apiEnd)
           : reports.netWorth(months, interval, acctIds, walletIds, period, apiStart, apiEnd),
     // Only request a custom report with both committed endpoints.
-    enabled: currentTab.enabled && !(noAccounts && activeTab !== 'net_worth') && (!isCustomRange || hasCustomRange),
+    enabled: currentTab.enabled && !isCategorySpending && !(noAccounts && activeTab !== 'net_worth') && (!isCustomRange || hasCustomRange),
   })
+
+  const { data: categoryData, isLoading: categoryLoading, isError: categoryError, error: categoryQueryError, refetch: refetchCategory } = useQuery<CategorySpendingMatrixResponse>({
+    queryKey: ['reports', 'category-spending', rangeKey, months, period ?? null],
+    queryFn: () => reports.categorySpending(months, 'monthly', period),
+    enabled: isCategorySpending && !noAccounts,
+  })
+  const reportError = isCategorySpending ? categoryError : isError
 
   const summary = data?.summary
   const trend = data?.trend ?? []
@@ -678,17 +684,17 @@ export default function ReportsPage() {
         ))}
       </div>
 
-      {isError && (
+      {reportError && (
         <div className="flex items-center justify-between gap-3 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 rounded-lg px-4 py-2.5 mb-5">
           <div className="flex items-center gap-2.5 min-w-0">
             <AlertCircle size={16} className="shrink-0 text-rose-600 dark:text-rose-400" />
             <span className="text-sm text-rose-900 dark:text-rose-200 truncate">
-              {extractApiError(error, t('reports.loadError'))}
+              {extractApiError(isCategorySpending ? categoryQueryError : error, t('reports.loadError'))}
             </span>
           </div>
           <button
             type="button"
-            onClick={() => refetch()}
+            onClick={() => isCategorySpending ? refetchCategory() : refetch()}
             className="shrink-0 text-sm font-semibold text-rose-600 dark:text-rose-400 hover:underline"
           >
             {t('common.retry')}
@@ -696,7 +702,20 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {!isError && (
+      {!reportError && (isCategorySpending ? (
+        <CategorySpendingSmallMultiples
+          data={categoryData}
+          isLoading={categoryLoading}
+          showVariance={showVariance}
+          onShowVarianceChange={setShowVariance}
+          onDrillDown={setDrillDown}
+          formatCurrency={(value, currency = userCurrency) => formatCurrency(value, currency, locale)}
+          formatMetricCurrency={(value, currency = userCurrency) => formatWholeCurrency(value, currency, locale)}
+          mask={mask}
+          locale={dateLocale}
+          t={t}
+        />
+      ) : (
       <>
       {/* Hero Card */}
       <div className="bg-card rounded-xl border border-border shadow-sm mb-5">
@@ -1597,7 +1616,8 @@ export default function ReportsPage() {
       </>
       )}
       </>
-      )}
+      ))}
+      {drillDown && <TransactionDrillDown filter={drillDown} onClose={() => setDrillDown(null)} />}
     </div>
   )
 }

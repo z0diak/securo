@@ -1228,7 +1228,7 @@ async def get_category_spending_matrix(
 
     from app.services.budget_service import get_budget_vs_actual
 
-    today = date.today()
+    today = app_today()
     user = await session.get(User, user_id)
     primary_currency = user.primary_currency if user else currency or get_settings().default_currency
     raw_periods = _month_periods(today, months, period)

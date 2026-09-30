@@ -2893,3 +2893,14 @@ async def test_custom_dates_override_indian_yearly_ytd(
         assert service.call_args.kwargs['financial_year_start_month'] == 4
     finally:
         app.dependency_overrides.pop(current_workspace, None)
+
+
+@pytest.mark.asyncio
+async def test_category_spending_uses_workspace_date(session, test_user, test_workspace, monkeypatch):
+    monkeypatch.setattr(report_service, "app_today", lambda: date(2025, 12, 31))
+    report = await report_service.get_category_spending_matrix(
+        session, test_workspace.id, test_user.id, period="ytd",
+    )
+    assert report.periods[0].key == "2025-12"
+    assert report.periods[-1].key == "2025-01"
+    assert len(report.periods) == 12

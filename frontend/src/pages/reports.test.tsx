@@ -10,6 +10,7 @@ const api = vi.hoisted(() => ({
     netWorth: vi.fn(),
     incomeExpenses: vi.fn(),
     cashFlow: vi.fn(),
+    categorySpending: vi.fn(),
   },
 }))
 
@@ -49,6 +50,7 @@ beforeEach(() => {
   api.reports.netWorth.mockResolvedValue(emptyReport('net_worth'))
   api.reports.incomeExpenses.mockResolvedValue(emptyReport('income_expenses'))
   api.reports.cashFlow.mockResolvedValue(emptyReport('cash_flow'))
+  api.reports.categorySpending.mockResolvedValue({ periods: [], rows: [], meta: { currency: 'USD', interval: 'monthly', type: 'expenses' } })
 })
 
 afterEach(() => vi.useRealTimers())
@@ -236,5 +238,34 @@ describe('Reports page — query failure', () => {
     await user.click(screen.getByRole('button', { name: t('reports.range6m') }))
     await waitFor(() => expect(screen.queryByText('end_date must be on or before today')).not.toBeInTheDocument())
     expect(screen.getByRole('button', { name: t('reports.range6m') })).toHaveClass('bg-primary')
+  })
+})
+
+
+describe('Category spending report integration', () => {
+  it('resets a custom range to monthly presets and queries the category endpoint', async () => {
+    const { user } = renderWithProviders(<ReportsPage />)
+    await waitFor(() => expect(api.reports.netWorth).toHaveBeenCalledTimes(1))
+    await user.click(screen.getByRole('button', { name: t('reports.customRange') }))
+    await user.click(screen.getByRole('button', { name: t('transactions.filtersBar.apply') }))
+    await waitFor(() => expect(api.reports.netWorth).toHaveBeenCalledTimes(2))
+    await user.click(screen.getByRole('button', { name: t('reports.categorySpending') }))
+    await waitFor(() => expect(api.reports.categorySpending).toHaveBeenCalledWith(12, 'monthly', undefined))
+    expect(api.reports.netWorth).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('button', { name: t('reports.customRange') })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: t('reports.range1y') })).toHaveClass('bg-primary')
+    expect(await screen.findByPlaceholderText(t('reports.searchCategories'))).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: t('reports.rangeYtd') }))
+    await waitFor(() => expect(api.reports.categorySpending).toHaveBeenLastCalledWith(12, 'monthly', 'ytd'))
+  })
+
+  it('shows category query failures and retries the category endpoint', async () => {
+    api.reports.categorySpending.mockRejectedValueOnce(new Error('network error'))
+    const { user } = renderWithProviders(<ReportsPage />)
+    await user.click(screen.getByRole('button', { name: t('reports.categorySpending') }))
+    expect(await screen.findByText(t('reports.loadError'))).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: t('common.retry') }))
+    await waitFor(() => expect(screen.queryByText(t('reports.loadError'))).not.toBeInTheDocument())
+    expect(api.reports.categorySpending).toHaveBeenCalledTimes(2)
   })
 })
