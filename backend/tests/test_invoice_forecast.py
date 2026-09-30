@@ -19,7 +19,7 @@ from app.models.account import Account
 from app.models.payee import Payee
 from app.services import invoice_forecast_service as forecast
 
-TODAY = date.today()
+TODAY = date(2026, 9, 15)
 SOON = TODAY + timedelta(days=10)
 FAR = TODAY + timedelta(days=400)
 
@@ -30,6 +30,13 @@ FAR = TODAY + timedelta(days=400)
 # date, which is what these assertions are actually about.
 _TOMORROW = TODAY + timedelta(days=1)
 PROJECTION_MONTH = _TOMORROW.replace(day=1).isoformat()
+
+
+@pytest.fixture(autouse=True)
+def forecast_clock(monkeypatch):
+    """Keep tomorrow inside the dashboard month, even on month-end runs."""
+    for module in ("dashboard_service", "invoice_service", "report_service"):
+        monkeypatch.setattr(f"app.services.{module}.app_today", lambda: TODAY)
 
 
 @pytest_asyncio.fixture
