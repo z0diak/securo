@@ -576,6 +576,44 @@ async def test_category_spending_includes_uncategorized(
 
 
 @pytest.mark.asyncio
+async def test_category_spending_excludes_transfer_categories(
+    session, test_user, test_workspace,
+):
+    account = await _create_manual_account(session, test_user.id, "Transfer matrix")
+    current_month = date.today().replace(day=1)
+    spend = Category(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        name="Groceries", icon="tag", color="#10B981",
+    )
+    transfer = Category(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        name="Self transfer", icon="tag", color="#64748B", treat_as_transfer=True,
+    )
+    session.add_all([spend, transfer])
+    session.add(Budget(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        category_id=transfer.id, amount=Decimal("500.00"),
+        month=current_month, is_recurring=False,
+    ))
+    for category in (spend, transfer):
+        session.add(Transaction(
+            id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+            account_id=account.id, category_id=category.id,
+            description="Expense", amount=Decimal("40.00"), currency="BRL",
+            date=current_month, type="debit", source="manual", status="posted",
+            created_at=datetime.now(timezone.utc),
+        ))
+    await session.commit()
+
+    report = await get_category_spending_matrix(
+        session, test_workspace.id, test_user.id, months=2,
+    )
+    ids = {row.category_id for row in report.rows}
+    assert str(transfer.id) not in ids
+    assert str(spend.id) in ids
+
+
+@pytest.mark.asyncio
 async def test_category_spending_empty_has_no_uncategorized_bucket(
     session, test_user, test_workspace,
 ):

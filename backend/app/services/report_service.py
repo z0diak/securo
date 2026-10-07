@@ -1290,6 +1290,15 @@ async def get_category_spending_matrix(
     rows_by_category: dict[str, dict] = {}
     accounting_mode = await get_credit_card_accounting_mode(session)
     uncategorized_periods = {}
+    # Transfer-like categories are flows, not spending.
+    transfer_category_ids = {
+        str(cid) for cid in (await session.execute(
+            select(Category.id).where(
+                Category.workspace_id == workspace_id,
+                Category.treat_as_transfer.is_(True),
+            )
+        )).scalars().all()
+    }
 
     for period_info in periods:
         month_start = date.fromisoformat(period_info.start)
@@ -1303,6 +1312,8 @@ async def get_category_spending_matrix(
         comparisons = await get_budget_vs_actual(session, workspace_id, user_id, month_start)
         for item in comparisons:
             cat_id = str(item.category_id)
+            if cat_id in transfer_category_ids:
+                continue
             actual = round(float(item.actual_amount or 0), 2)
             budget = (
                 round(float(item.budget_amount), 2)
