@@ -217,6 +217,37 @@ export function budgetBarModel(
   }
 }
 
+export interface AxisTick {
+  value: number
+  percent: number
+}
+
+/**
+ * Round-number gridlines (1/2/5 × 10^n) strictly inside (0, max], at most `maxTicks`.
+ * Positions are percentages of `max`, matching how bar heights are scaled.
+ */
+export function axisTicks(max: number, maxTicks = 3): AxisTick[] {
+  if (!Number.isFinite(max) || max <= 0 || maxTicks < 1) return []
+
+  const magnitude = 10 ** Math.floor(Math.log10(max))
+  let step = magnitude / 10
+  search: for (let scale = magnitude / 10; scale <= magnitude * 10; scale *= 10) {
+    for (const factor of [1, 2, 5]) {
+      if (Math.floor(max / (scale * factor)) <= maxTicks) {
+        step = scale * factor
+        break search
+      }
+    }
+  }
+
+  const ticks: AxisTick[] = []
+  for (let i = 1; i * step <= max * (1 + 1e-9); i += 1) {
+    const value = Math.round(i * step * 1e6) / 1e6
+    ticks.push({ value, percent: (value / max) * 100 })
+  }
+  return ticks
+}
+
 export function filterCategoryCards(
   cards: CategoryCardSummary[],
   state: CategoryCardFilterState,

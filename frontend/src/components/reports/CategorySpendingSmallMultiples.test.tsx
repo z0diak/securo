@@ -373,6 +373,18 @@ describe('CategorySpendingSmallMultiples', () => {
     )
   })
 
+  it('draws round-number scale labels per card and masks them in privacy mode', () => {
+    const { unmount } = renderComponent()
+
+    const card = screen.getByTestId('category-card-groceries')
+    expect(within(card).getByTestId('axis-label-groceries-200')).toHaveTextContent('200')
+    expect(within(card).getByTestId('axis-label-groceries-600')).toHaveTextContent('600')
+    unmount()
+
+    renderComponent({ mask: () => 'MASK' })
+    expect(screen.getByTestId('axis-label-groceries-200')).toHaveTextContent('MASK')
+  })
+
   it('renders no data and no matching states', async () => {
     const empty = renderComponent({ data: matrix([]) })
     expect(screen.getByText(t('reports.noData'))).toBeInTheDocument()

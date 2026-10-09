@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
+  axisTicks,
   budgetBarModel,
   categoryCardSummary,
   DEFAULT_VISIBLE_CATEGORY_COUNT,
@@ -21,6 +22,15 @@ import {
 } from '@/lib/category-spending-small-multiples'
 import { cn } from '@/lib/utils'
 import type { CategorySpendingMatrixResponse } from '@/types'
+
+// Plot geometry shared by the bars (MonthBar) and the gridlines/axis labels.
+// Plot box is `py-1` below the button top; 1px is the baseline border.
+const PLOT_TOP = '0.25rem'
+const PLOT_HEIGHT = '6rem'
+const PLOT_INNER_HEIGHT = `(${PLOT_HEIGHT} - 1px)`
+
+const tickTop = (percent: number) =>
+  `calc(${PLOT_TOP} + ${PLOT_HEIGHT} - 1px - ${percent / 100} * ${PLOT_INNER_HEIGHT})`
 
 const PRESETS: { key: CategorySpendingPreset; labelKey: string }[] = [
   { key: 'all', labelKey: 'reports.allCategories' },
@@ -110,7 +120,13 @@ export function CategorySpendingSmallMultiples({
     return `${value >= 0 ? '+' : '-'}${formatted}`
   }
 
-  const setPresetAndClearSelection = (nextPreset: CategorySpendingPreset) => {
+  const axisFormatter = useMemo(
+    () => new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }),
+    [locale],
+  )
+  const formatAxisMoney = (value: number) => mask(axisFormatter.format(value))
+
+  const setPresetAndClearSelection =(nextPreset: CategorySpendingPreset) => {
     setPreset(nextPreset)
     setSelectedCategoryIds([])
   }
@@ -282,6 +298,7 @@ export function CategorySpendingSmallMultiples({
               formatMoney={formatMoney}
               formatRoundedMoney={formatRoundedMoney}
               formatSignedRoundedMoney={formatSignedRoundedMoney}
+              formatAxisMoney={formatAxisMoney}
               locale={locale}
               t={t}
             />
@@ -299,6 +316,7 @@ function CategoryCard({
   formatMoney,
   formatRoundedMoney,
   formatSignedRoundedMoney,
+  formatAxisMoney,
   locale,
   t,
 }: {
@@ -308,9 +326,14 @@ function CategoryCard({
   formatMoney: (value: number) => string
   formatRoundedMoney: (value: number) => string
   formatSignedRoundedMoney: (value: number) => string
+  formatAxisMoney: (value: number) => string
   locale: string
   t: TFunction
 }) {
+  const ticks = useMemo(
+    () => (card.totalActual > 0 ? axisTicks(card.maxActualOrBudget) : []),
+    [card.totalActual, card.maxActualOrBudget],
+  )
   const TrendIcon = card.trend.direction === 'up'
     ? ArrowUp
     : card.trend.direction === 'down'
@@ -375,26 +398,52 @@ function CategoryCard({
         />
       </dl>
 
-      <div className="mt-4 overflow-x-auto pb-1">
-        <div
-          className="grid min-w-full items-end gap-1"
-          style={{
-            gridTemplateColumns: `repeat(${card.values.length}, minmax(1.55rem, 1fr))`,
-            minWidth: `${Math.max(card.values.length * 28, 260)}px`,
-          }}
-        >
-          {card.values.map((value) => (
-            <MonthBar
-              key={value.period.key}
-              card={card}
-              value={value}
-              showVariance={showVariance}
-              onDrillDown={onDrillDown}
-              formatMoney={formatMoney}
-              locale={locale}
-              t={t}
-            />
+      <div className="mt-4 flex pb-1">
+        <div className="relative w-9 shrink-0" aria-hidden="true">
+          {ticks.map((tick) => (
+            <span
+              key={tick.value}
+              data-testid={`axis-label-${card.row.category_id}-${tick.value}`}
+              className="absolute right-1 translate-y-1/2 text-[10px] leading-none tabular-nums text-muted-foreground"
+              style={{ top: tickTop(tick.percent) }}
+            >
+              {formatAxisMoney(tick.value)}
+            </span>
           ))}
+        </div>
+        <div className="relative min-w-0 flex-1 overflow-x-auto">
+          <div
+            className="relative"
+            style={{ minWidth: `${Math.max(card.values.length * 28, 224)}px` }}
+          >
+            {ticks.map((tick) => (
+              <span
+                key={tick.value}
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-x-0 border-t border-dashed border-border/60"
+                style={{ top: tickTop(tick.percent) }}
+              />
+            ))}
+            <div
+              className="relative grid items-end gap-1"
+              style={{
+                gridTemplateColumns: `repeat(${card.values.length}, minmax(1.55rem, 1fr))`,
+              }}
+            >
+              {card.values.map((value) => (
+                <MonthBar
+                  key={value.period.key}
+                  card={card}
+                  value={value}
+                  showVariance={showVariance}
+                  onDrillDown={onDrillDown}
+                  formatMoney={formatMoney}
+                  locale={locale}
+                  t={t}
+                />
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </article>
@@ -493,7 +542,7 @@ function MonthBar({
       title={tooltip}
       aria-label={`${card.row.category_name} ${value.period.label}`}
       onClick={openDrillDown}
-      className="flex h-36 min-w-0 flex-col items-center justify-end rounded-lg px-0.5 py-1 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+      className="flex min-w-0 flex-col items-center rounded-lg px-0.5 py-1 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
     >
       <span className="relative flex h-24 w-full items-end justify-center border-b border-border/70">
         {model.budgetLayer === 'back' && (
