@@ -853,6 +853,7 @@
     "drillDownIncome": "आय — {{month}}",
     "drillDownExpenses": "खर्च — {{month}}",
     "drillDownCategory": "{{category}} — {{month}}",
+    "netIncome": "शुद्ध आय",
     "drillDownUncategorized": "अवर्गीकृत लेन-देन",
     "drillDownDay": "लेन-देन — {{date}}",
     "drillDownTotal": "{{count}} लेन-देन · {{total}}",

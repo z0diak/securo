@@ -853,6 +853,7 @@
     "drillDownIncome": "Inkomen — {{month}}",
     "drillDownExpenses": "Uitgaven — {{month}}",
     "drillDownCategory": "{{category}} — {{month}}",
+    "netIncome": "Netto-inkomen",
     "drillDownUncategorized": "Niet-gecategoriseerde transacties",
     "drillDownDay": "Transacties — {{date}}",
     "drillDownTotal": "{{count}} transacties · {{total}}",

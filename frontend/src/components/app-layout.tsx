@@ -599,7 +599,9 @@ export function AppLayout() {
           'flex-1 min-h-screen overflow-x-hidden transition-[margin] duration-300 ease-in-out motion-reduce:transition-none',
           desktopSidebarCollapsed ? 'lg:ml-16' : 'lg:ml-60',
         )}>
-          <div className="p-6 max-w-7xl mx-auto">
+          {/* A page can opt into a wider column by rendering a [data-wide-content]
+              element (e.g. the category spending report's card grid). */}
+          <div className="p-6 max-w-7xl mx-auto has-[[data-wide-content]]:max-w-[112rem]">
             {/* Active-collection filter (issue #105): sticky bar above the
                 content so the scope is visible right where the data is. */}
             <CollectionSelector variant="header" />

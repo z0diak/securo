@@ -385,6 +385,41 @@ describe('CategorySpendingSmallMultiples', () => {
     expect(screen.getByTestId('axis-label-groceries-200')).toHaveTextContent('MASK')
   })
 
+  it('draws net-income months below a raised zero line and drills into both directions', async () => {
+    const rental = row('rental', 'Rental', 'Home', [300, -200, 400, 100], [1000, 1000, 1000, 1000])
+    const { user, onDrillDown } = renderComponent({ data: matrix([rental]) })
+
+    const incomeBar = screen.getByTestId('actual-bar-rental-2026-02')
+    const spendBar = screen.getByTestId('actual-bar-rental-2026-03')
+    expect(incomeBar).toHaveAttribute('data-direction', 'negative')
+    expect(incomeBar.className).toContain('bg-emerald-500')
+    expect(spendBar).not.toHaveAttribute('data-direction')
+    expect(spendBar.style.bottom).not.toBe('0%')
+    expect(screen.getByTestId('month-bar-rental-2026-02').getAttribute('title'))
+      .toContain(`${t('reports.netIncome')}: $200.00`)
+    expect(screen.getByTestId('month-bar-rental-2026-02')).toHaveAttribute('data-budget-status', 'under')
+
+    await user.click(screen.getByTestId('month-bar-rental-2026-02'))
+    expect(onDrillDown.mock.calls[0][0]).toMatchObject({ category_id: 'rental', from: '2026-02-01' })
+    expect(onDrillDown.mock.calls[0][0]).not.toHaveProperty('type')
+
+    await user.click(screen.getByTestId('month-bar-rental-2026-03'))
+    expect(onDrillDown.mock.calls[1][0]).toMatchObject({ type: 'debit' })
+  })
+
+  it('sizes cards and bar columns so a 12-month card fits without scrolling', () => {
+    const { container } = renderComponent()
+
+    expect(container.querySelector('[data-wide-content]')).not.toBeNull()
+    const grid = screen.getByTestId('category-card-groceries').parentElement as HTMLElement
+    expect(grid.className).toContain('auto-fill,minmax(min(100%,26rem),1fr)')
+
+    // 12 bar columns of 1.35rem plus 11 gaps of 0.25rem must fit the minimum
+    // inner plot width the card reserves (26px per bar).
+    const columnsPx = 12 * 1.35 * 16 + 11 * 0.25 * 16
+    expect(12 * 26).toBeGreaterThanOrEqual(columnsPx)
+  })
+
   it('renders no data and no matching states', async () => {
     const empty = renderComponent({ data: matrix([]) })
     expect(screen.getByText(t('reports.noData'))).toBeInTheDocument()

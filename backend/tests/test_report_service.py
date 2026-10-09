@@ -614,6 +614,105 @@ async def test_category_spending_excludes_transfer_categories(
 
 
 @pytest.mark.asyncio
+async def test_category_spending_drops_income_only_but_nets_refunds(
+    session, test_user, test_workspace,
+):
+    account = await _create_manual_account(session, test_user.id, "Income matrix")
+    current_month = date.today().replace(day=1)
+    previous_month = (current_month - timedelta(days=1)).replace(day=1)
+
+    def category(name):
+        return Category(
+            id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+            name=name, icon="tag", color="#10B981",
+        )
+
+    car, salary, mixed, unspent = category("Car"), category("Salary"), category("Mixed"), category("Unspent")
+    session.add_all([car, salary, mixed, unspent])
+    for cat in (salary, unspent):
+        session.add(Budget(
+            id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+            category_id=cat.id, amount=Decimal("500.00"),
+            month=current_month, is_recurring=False,
+        ))
+
+    def tx(cat, amount, tx_date, tx_type):
+        return Transaction(
+            id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+            account_id=account.id, category_id=cat.id, description="Row",
+            amount=Decimal(amount), currency="BRL", date=tx_date,
+            type=tx_type, source="manual", status="posted",
+            created_at=datetime.now(timezone.utc),
+        )
+
+    session.add_all([
+        tx(car, "100", current_month, "debit"),
+        tx(salary, "3000", current_month, "credit"),
+        tx(salary, "3000", previous_month, "credit"),
+        # Refund nets spend in one month; income wins (clamped to 0) in the other.
+        tx(mixed, "100", current_month, "debit"),
+        tx(mixed, "30", current_month, "credit"),
+        tx(mixed, "50", previous_month, "debit"),
+        tx(mixed, "80", previous_month, "credit"),
+    ])
+    await session.commit()
+
+    report = await get_category_spending_matrix(
+        session, test_workspace.id, test_user.id, months=2,
+    )
+    rows = {row.category_id: row for row in report.rows}
+    assert str(salary.id) not in rows
+    assert str(car.id) in rows
+    # Budgeted category with no transactions at all is still reported.
+    assert str(unspent.id) in rows
+    mixed_row = rows[str(mixed.id)]
+    assert mixed_row.periods[current_month.strftime("%Y-%m")].actual_amount == 70
+    # Income above spend stays negative; total is true net spend.
+    assert mixed_row.periods[previous_month.strftime("%Y-%m")].actual_amount == -30
+    assert mixed_row.total_amount == 40
+    # Trend treats the net-income month as zero spend: no sign flip.
+    assert mixed_row.trend_amount == 70
+    assert mixed_row.trend_percent is None
+
+
+@pytest.mark.asyncio
+async def test_category_spending_net_income_month_counts_as_budget_met(
+    session, test_user, test_workspace,
+):
+    account = await _create_manual_account(session, test_user.id, "Budget net")
+    current_month = date.today().replace(day=1)
+    category = Category(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        name="Rental", icon="tag", color="#10B981",
+    )
+    session.add(category)
+    session.add(Budget(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        category_id=category.id, amount=Decimal("1000.00"),
+        month=current_month, is_recurring=False,
+    ))
+    for amount, tx_type in (("2000", "debit"), ("4500", "credit")):
+        session.add(Transaction(
+            id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+            account_id=account.id, category_id=category.id, description="Row",
+            amount=Decimal(amount), currency="BRL", date=current_month,
+            type=tx_type, source="manual", status="posted",
+            created_at=datetime.now(timezone.utc),
+        ))
+    await session.commit()
+
+    report = await get_category_spending_matrix(
+        session, test_workspace.id, test_user.id, months=1,
+    )
+    value = report.rows[0].periods[current_month.strftime("%Y-%m")]
+    assert value.actual_amount == -2500
+    assert value.budget_amount == 1000
+    # 3500 of the budget is left to spend.
+    assert value.variance_amount == -3500
+    assert value.status == "under"
+
+
+@pytest.mark.asyncio
 async def test_category_spending_empty_has_no_uncategorized_bucket(
     session, test_user, test_workspace,
 ):

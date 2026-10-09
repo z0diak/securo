@@ -857,6 +857,7 @@
     "drillDownIncome": "Príjem — {{month}}",
     "drillDownExpenses": "Výdavky — {{month}}",
     "drillDownCategory": "{{category}} — {{month}}",
+    "netIncome": "Čistý príjem",
     "drillDownUncategorized": "Transakcie bez kategórie",
     "drillDownDay": "Transakcie — {{date}}",
     "drillDownTotal": "{{count}} transakcií · {{total}}",

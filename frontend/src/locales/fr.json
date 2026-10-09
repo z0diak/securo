@@ -853,6 +853,7 @@
     "drillDownIncome": "Revenus — {{month}}",
     "drillDownExpenses": "Dépenses — {{month}}",
     "drillDownCategory": "{{category}} — {{month}}",
+    "netIncome": "Revenu net",
     "drillDownUncategorized": "Transactions non catégorisées",
     "drillDownDay": "Transactions — {{date}}",
     "drillDownTotal": "{{count}} transactions · {{total}}",

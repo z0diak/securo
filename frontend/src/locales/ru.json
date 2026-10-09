@@ -857,6 +857,7 @@
     "drillDownIncome": "Доход — {{month}}",
     "drillDownExpenses": "Расходы — {{month}}",
     "drillDownCategory": "{{category}} — {{month}}",
+    "netIncome": "Чистый доход",
     "drillDownUncategorized": "Транзакции без категории",
     "drillDownDay": "Транзакции — {{date}}",
     "drillDownTotal": "{{count}} транзакций · {{total}}",
