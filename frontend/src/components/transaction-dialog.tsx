@@ -1166,8 +1166,8 @@ function TransactionForm({
       <div className="space-y-2">
         <Label>{t('transactions.notes')} <span className="text-muted-foreground font-normal text-xs">({t('transactions.notesHint')})</span></Label>
         <textarea
-          className="w-full border border-input rounded-md px-3 py-2 text-sm bg-card resize-none focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-0"
-          rows={2}
+          className="w-full border border-input rounded-md px-3 py-2 text-sm bg-card resize-y min-h-[4.5rem] focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-0"
+          rows={4}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           placeholder={t('transactions.notesPlaceholder')}
