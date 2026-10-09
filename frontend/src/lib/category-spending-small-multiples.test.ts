@@ -7,6 +7,7 @@ import type {
 } from '@/types'
 import {
   averageMonthly,
+  axisTicks,
   budgetBarModel,
   categoryCardSummary,
   categoryMonthlyValues,
@@ -260,5 +261,21 @@ describe('category spending small multiple helpers', () => {
 
     expect(Number.isFinite(model.actualHeight)).toBe(true)
     expect(Number.isFinite(model.budgetHeight)).toBe(true)
+  })
+})
+
+describe('axisTicks', () => {
+  it('picks round-number gridlines scaled to the bar max', () => {
+    expect(axisTicks(1840).map((tick) => tick.value)).toEqual([500, 1000, 1500])
+    expect(axisTicks(1840)[0].percent).toBeCloseTo((500 / 1840) * 100)
+    expect(axisTicks(1000).map((tick) => tick.value)).toEqual([500, 1000])
+    expect(axisTicks(95).map((tick) => tick.value)).toEqual([50])
+    expect(axisTicks(12_400).map((tick) => tick.value)).toEqual([5000, 10_000])
+  })
+
+  it('never returns more than maxTicks and ignores invalid max', () => {
+    expect(axisTicks(7_777, 2).length).toBeLessThanOrEqual(2)
+    expect(axisTicks(0)).toEqual([])
+    expect(axisTicks(Number.NaN)).toEqual([])
   })
 })
