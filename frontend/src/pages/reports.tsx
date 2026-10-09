@@ -31,7 +31,8 @@ import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 import { useCollectionFilter } from '@/contexts/collection-filter-context'
 import { TransactionDrillDown, type DrillDownFilter } from '@/components/transaction-drill-down'
-import type { CategorySpendingMatrixResponse, CategoryTrendItem, ReportResponse } from '@/types'
+import { TransactionEditHost } from '@/components/transaction-edit-host'
+import type { CategorySpendingMatrixResponse, CategoryTrendItem, ReportResponse, Transaction } from '@/types'
 import { formatCurrency } from '@/lib/format'
 import { localDateString } from '@/lib/date-utils'
 
@@ -224,6 +225,7 @@ export default function ReportsPage() {
   const [cashFlowBaseline, setCashFlowBaseline] = useState(false)
   const [showVariance, setShowVariance] = useState(true)
   const [drillDown, setDrillDown] = useState<DrillDownFilter | null>(null)
+  const [editingTx, setEditingTx] = useState<Transaction | null>(null)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   // Active Collection filter (issue #105): scope all report tabs to its
   // accounts; net worth also includes the collection's wallets' assets.
@@ -1617,7 +1619,14 @@ export default function ReportsPage() {
       )}
       </>
       ))}
-      {drillDown && <TransactionDrillDown filter={drillDown} onClose={() => setDrillDown(null)} />}
+      {drillDown && (
+        <TransactionDrillDown
+          filter={drillDown}
+          onClose={() => setDrillDown(null)}
+          onTransactionClick={setEditingTx}
+        />
+      )}
+      <TransactionEditHost transaction={editingTx} onClose={() => setEditingTx(null)} />
     </div>
   )
 }
