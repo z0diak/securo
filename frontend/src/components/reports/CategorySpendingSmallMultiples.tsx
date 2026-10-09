@@ -9,16 +9,17 @@ import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
-  axisTicks,
   budgetBarModel,
   categoryCardSummary,
   DEFAULT_VISIBLE_CATEGORY_COUNT,
   filterCategoryCards,
   inclusivePeriodEnd,
+  signedAxisTicks,
   sortCategoryCards,
   type CategoryCardSummary,
   type CategoryMonthlyValue,
   type CategorySpendingPreset,
+  zeroLinePercent,
 } from '@/lib/category-spending-small-multiples'
 import { cn } from '@/lib/utils'
 import type { CategorySpendingMatrixResponse } from '@/types'
@@ -28,6 +29,14 @@ import type { CategorySpendingMatrixResponse } from '@/types'
 const PLOT_TOP = '0.25rem'
 const PLOT_HEIGHT = '6rem'
 const PLOT_INNER_HEIGHT = `(${PLOT_HEIGHT} - 1px)`
+
+// Bar column sizing: 12 months fit a card without a scrollbar once the card is
+// at least 26rem wide. The grid adds columns only while cards keep that width,
+// so wide screens get more cards and narrow ones get fewer. (Class names stay
+// literal so Tailwind can see them.)
+const BAR_COLUMN_MIN = '1.35rem'
+const BAR_COLUMN_PX = 26
+const CARD_GRID_CLASS = 'grid gap-4 grid-cols-[repeat(auto-fill,minmax(min(100%,26rem),1fr))]'
 
 const tickTop = (percent: number) =>
   `calc(${PLOT_TOP} + ${PLOT_HEIGHT} - 1px - ${percent / 100} * ${PLOT_INNER_HEIGHT})`
@@ -144,7 +153,8 @@ export function CategorySpendingSmallMultiples({
   }
 
   return (
-    <div className="space-y-4">
+    // data-wide-content lets the app layout widen its page container for this view.
+    <div data-wide-content className="space-y-4">
       <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-3 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
@@ -270,7 +280,7 @@ export function CategorySpendingSmallMultiples({
       </div>
 
       {isLoading ? (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className={CARD_GRID_CLASS}>
           {Array.from({ length: DEFAULT_VISIBLE_CATEGORY_COUNT }).map((_, index) => (
             <Skeleton
               key={index}
@@ -288,7 +298,7 @@ export function CategorySpendingSmallMultiples({
           {t('reports.noMatchingCategories')}
         </p>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className={CARD_GRID_CLASS}>
           {visibleCards.map((card) => (
             <CategoryCard
               key={card.row.category_id}
@@ -330,9 +340,10 @@ function CategoryCard({
   locale: string
   t: TFunction
 }) {
+  const hasSpend = card.maxMonthlyActual > 0 || card.negativeMax > 0
   const ticks = useMemo(
-    () => (card.totalActual > 0 ? axisTicks(card.maxActualOrBudget) : []),
-    [card.totalActual, card.maxActualOrBudget],
+    () => (hasSpend ? signedAxisTicks(card.maxActualOrBudget, card.negativeMax) : []),
+    [hasSpend, card.maxActualOrBudget, card.negativeMax],
   )
   const TrendIcon = card.trend.direction === 'up'
     ? ArrowUp
@@ -414,7 +425,7 @@ function CategoryCard({
         <div className="relative min-w-0 flex-1 overflow-x-auto">
           <div
             className="relative"
-            style={{ minWidth: `${Math.max(card.values.length * 28, 224)}px` }}
+            style={{ minWidth: `${Math.max(card.values.length * BAR_COLUMN_PX, 224)}px` }}
           >
             {ticks.map((tick) => (
               <span
@@ -427,7 +438,7 @@ function CategoryCard({
             <div
               className="relative grid items-end gap-1"
               style={{
-                gridTemplateColumns: `repeat(${card.values.length}, minmax(1.55rem, 1fr))`,
+                gridTemplateColumns: `repeat(${card.values.length}, minmax(${BAR_COLUMN_MIN}, 1fr))`,
               }}
             >
               {card.values.map((value) => (
@@ -506,13 +517,16 @@ function MonthBar({
   locale: string
   t: TFunction
 }) {
-  const model = budgetBarModel(value, card.maxActualOrBudget, showVariance)
+  const model = budgetBarModel(value, card.maxActualOrBudget, showVariance, card.negativeMax)
+  const zeroPercent = zeroLinePercent(card.maxActualOrBudget, card.negativeMax)
+  const netIncome = value.actualAmount < 0
   const actualColor = model.status === 'over'
     ? undefined
     : card.row.category_color || 'var(--primary)'
   const tooltip = [
     value.period.label,
     `${t('reports.actual')}: ${formatMoney(value.actualAmount)}`,
+    netIncome ? `${t('reports.netIncome')}: ${formatMoney(Math.abs(value.actualAmount))}` : null,
     value.budgetAmount == null ? null : `${t('reports.budget')}: ${formatMoney(value.budgetAmount)}`,
     value.varianceAmount == null ? null : `${t('reports.budgetVariance')}: ${formatMoney(Math.abs(value.varianceAmount))}`,
   ].filter((line): line is string => Boolean(line)).join('\n')
@@ -526,7 +540,8 @@ function MonthBar({
       ...(card.row.category_id === 'uncategorized'
         ? { uncategorized: true }
         : { category_id: card.row.category_id }),
-      type: 'debit',
+      // A net-income month is mostly credits, so list both directions.
+      ...(netIncome ? {} : { type: 'debit' as const }),
       from: value.period.start,
       to: inclusivePeriodEnd(value.period.end),
     })
@@ -544,19 +559,26 @@ function MonthBar({
       onClick={openDrillDown}
       className="flex min-w-0 flex-col items-center rounded-lg px-0.5 py-1 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
     >
-      <span className="relative flex h-24 w-full items-end justify-center border-b border-border/70">
-        {model.budgetLayer === 'back' && (
-          <BudgetBar categoryId={card.row.category_id} value={value} model={model} layer="back" />
-        )}
-        {model.actualLayer === 'back' && (
-          <ActualBar categoryId={card.row.category_id} value={value} model={model} color={actualColor} layer="back" />
-        )}
-        {model.budgetLayer === 'front' && (
-          <BudgetBar categoryId={card.row.category_id} value={value} model={model} layer="front" />
-        )}
-        {model.actualLayer === 'front' && (
-          <ActualBar categoryId={card.row.category_id} value={value} model={model} color={actualColor} layer="front" />
-        )}
+      <span className="relative block h-24 w-full">
+        <span className="absolute inset-x-0 bottom-px top-0">
+          <span
+            aria-hidden="true"
+            className="absolute inset-x-0 h-px bg-border/70"
+            style={{ bottom: `calc(${zeroPercent}% - 1px)` }}
+          />
+          {model.budgetLayer === 'back' && (
+            <BudgetBar categoryId={card.row.category_id} value={value} model={model} zeroPercent={zeroPercent} layer="back" />
+          )}
+          {model.actualLayer === 'back' && (
+            <ActualBar categoryId={card.row.category_id} value={value} model={model} zeroPercent={zeroPercent} color={actualColor} layer="back" />
+          )}
+          {model.budgetLayer === 'front' && (
+            <BudgetBar categoryId={card.row.category_id} value={value} model={model} zeroPercent={zeroPercent} layer="front" />
+          )}
+          {model.actualLayer === 'front' && (
+            <ActualBar categoryId={card.row.category_id} value={value} model={model} zeroPercent={zeroPercent} color={actualColor} layer="front" />
+          )}
+        </span>
       </span>
       <StatusMarker status={model.status} />
       <span className="mt-1 block w-full truncate text-center text-[10px] text-muted-foreground">
@@ -570,25 +592,41 @@ function ActualBar({
   categoryId,
   value,
   model,
+  zeroPercent,
   color,
   layer,
 }: {
   categoryId: string
   value: CategoryMonthlyValue
   model: ReturnType<typeof budgetBarModel>
+  zeroPercent: number
   color: string | undefined
   layer: 'front' | 'back'
 }) {
+  // Net-income month: income exceeded spending, drawn below the zero line.
+  if (value.actualAmount < 0) {
+    return (
+      <span
+        data-testid={`actual-bar-${categoryId}-${value.period.key}`}
+        data-layer={layer}
+        data-direction="negative"
+        className="absolute left-1/2 z-10 w-[72%] -translate-x-1/2 rounded-b-md bg-emerald-500/75"
+        style={{ top: `${100 - zeroPercent}%`, height: `${model.negativeHeight}%` }}
+      />
+    )
+  }
+
   return (
     <span
       data-testid={`actual-bar-${categoryId}-${value.period.key}`}
       data-layer={layer}
       className={cn(
-        'absolute bottom-0 rounded-t-md',
+        'absolute left-1/2 -translate-x-1/2 rounded-t-md',
         layer === 'back' ? 'z-0 w-[72%]' : 'z-10 w-[72%]',
         model.status === 'over' ? 'bg-rose-500/75' : 'bg-primary/75',
       )}
       style={{
+        bottom: `${zeroPercent}%`,
         height: `${model.actualHeight}%`,
         backgroundColor: color,
       }}
@@ -600,11 +638,13 @@ function BudgetBar({
   categoryId,
   value,
   model,
+  zeroPercent,
   layer,
 }: {
   categoryId: string
   value: CategoryMonthlyValue
   model: ReturnType<typeof budgetBarModel>
+  zeroPercent: number
   layer: 'front' | 'back'
 }) {
   return (
@@ -612,12 +652,12 @@ function BudgetBar({
       data-testid={`budget-bar-${categoryId}-${value.period.key}`}
       data-layer={layer}
       className={cn(
-        'absolute bottom-0 rounded-t-sm border',
+        'absolute left-1/2 -translate-x-1/2 rounded-t-sm border',
         layer === 'back'
           ? 'z-0 w-[46%] border-primary/25 bg-primary/10'
           : 'z-20 w-[46%] border-primary/50 bg-card',
       )}
-      style={{ height: `${model.budgetHeight ?? 0}%` }}
+      style={{ bottom: `${zeroPercent}%`, height: `${model.budgetHeight ?? 0}%` }}
     />
   )
 }

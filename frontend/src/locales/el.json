@@ -853,6 +853,7 @@
     "drillDownIncome": "Έσοδα — {{month}}",
     "drillDownExpenses": "Έξοδα — {{month}}",
     "drillDownCategory": "{{category}} — {{month}}",
+    "netIncome": "Καθαρό εισόδημα",
     "drillDownUncategorized": "Συναλλαγές χωρίς κατηγορία",
     "drillDownDay": "Συναλλαγές — {{date}}",
     "drillDownTotal": "{{count}} συναλλαγές · {{total}}",

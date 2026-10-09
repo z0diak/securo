@@ -853,6 +853,7 @@
     "drillDownIncome": "収入 — {{month}}",
     "drillDownExpenses": "支出 — {{month}}",
     "drillDownCategory": "{{category}} — {{month}}",
+    "netIncome": "純収入",
     "drillDownUncategorized": "未分類の取引",
     "drillDownDay": "取引 — {{date}}",
     "drillDownTotal": "{{count}}件 · {{total}}",

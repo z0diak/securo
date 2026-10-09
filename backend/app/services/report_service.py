@@ -1254,6 +1254,39 @@ async def _uncategorized_spending(
     return round(float(max(actual, Decimal("0"))), 2)
 
 
+async def _income_only_category_ids(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    start: date,
+    end: date,
+    accounting_mode: str,
+    category_ids: list[str],
+) -> set[str]:
+    """Categories with credits but no debits in range: income, not spending."""
+    if not category_ids:
+        return set()
+    report_date = reporting_date_col(accounting_mode)
+    result = await session.execute(
+        select(
+            Transaction.category_id,
+            func.count().filter(Transaction.type == "debit"),
+            func.count().filter(Transaction.type == "credit"),
+        )
+        .where(
+            Transaction.workspace_id == workspace_id,
+            Transaction.category_id.in_([uuid.UUID(cid) for cid in category_ids]),
+            Transaction.source != "opening_balance",
+            Transaction.status == "posted",
+            report_date >= start,
+            report_date < end,
+            report_date <= app_today(),
+            counts_as_user_pnl(),
+        )
+        .group_by(Transaction.category_id)
+    )
+    return {str(cat_id) for cat_id, debits, credits in result.all() if debits == 0 and credits > 0}
+
+
 async def get_category_spending_matrix(
     session: AsyncSession,
     workspace_id: uuid.UUID,
@@ -1264,7 +1297,10 @@ async def get_category_spending_matrix(
     period: str | None = None,
     report_type: str = "expenses",
 ) -> CategorySpendingMatrixResponse:
-    """Build monthly category spending matrix with budget variance."""
+    """Build monthly category spending matrix with budget variance.
+
+    Monthly actuals are net of credits and may be negative (income above spend).
+    """
     if interval != "monthly":
         raise ValueError("Category spending report supports monthly interval only")
     if report_type != "expenses":
@@ -1309,7 +1345,9 @@ async def get_category_spending_matrix(
             ),
             status="no_budget",
         )
-        comparisons = await get_budget_vs_actual(session, workspace_id, user_id, month_start)
+        comparisons = await get_budget_vs_actual(
+            session, workspace_id, user_id, month_start, signed=True,
+        )
         for item in comparisons:
             cat_id = str(item.category_id)
             if cat_id in transfer_category_ids:
@@ -1367,8 +1405,26 @@ async def get_category_spending_matrix(
             "periods": uncategorized_periods,
         }
 
-    rows: list[CategorySpendingRow] = []
+    # Credits net against spend (months may go negative), but a category that
+    # only ever received credits is income; a budget or projection must not
+    # surface it as a card.
     period_keys = [p.key for p in periods]
+    no_spend_ids = [
+        cat_id for cat_id, raw in rows_by_category.items()
+        if cat_id != "uncategorized"
+        and not any(v.actual_amount > 0 for v in raw["periods"].values())
+    ]
+    if no_spend_ids and periods:
+        income_only = await _income_only_category_ids(
+            session, workspace_id,
+            min(date.fromisoformat(p.start) for p in periods),
+            max(date.fromisoformat(p.end) for p in periods),
+            accounting_mode, no_spend_ids,
+        )
+        for cat_id in income_only:
+            del rows_by_category[cat_id]
+
+    rows: list[CategorySpendingRow] = []
     for raw in rows_by_category.values():
         values = [
             raw["periods"].get(
@@ -1381,10 +1437,13 @@ async def get_category_spending_matrix(
         average = round(total / len(period_keys), 2) if period_keys else 0.0
         latest = values[0].actual_amount if values else 0.0
         oldest = values[-1].actual_amount if values else 0.0
-        trend_amount = round(latest - oldest, 2)
+        # Months where credits beat spend count as zero spend so the trend sign
+        # and percentage keep their meaning.
+        trend_latest, trend_oldest = max(latest, 0.0), max(oldest, 0.0)
+        trend_amount = round(trend_latest - trend_oldest, 2)
         trend_percent = (
-            round((trend_amount / oldest) * 100, 1)
-            if oldest != 0
+            round((trend_amount / trend_oldest) * 100, 1)
+            if trend_oldest != 0
             else None
         )
 

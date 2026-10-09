@@ -15,8 +15,10 @@ import {
   filterCategoryCards,
   orderedCategoryPeriods,
   sortCategoryCards,
+  signedAxisTicks,
   standardDeviation,
   trendSummary,
+  zeroLinePercent,
 } from '@/lib/category-spending-small-multiples'
 
 function period(month: string): CategorySpendingPeriod {
@@ -129,6 +131,15 @@ describe('category spending small multiple helpers', () => {
     expect(trend.amount).toBe(30)
     expect(trend.percent).toBe(300)
     expect(trend.direction).toBe('up')
+  })
+
+  it('treats net-income months as zero spend so the trend does not flip sign', () => {
+    const trend = trendSummary([-300, 10, 40])
+
+    expect(trend.amount).toBe(30)
+    expect(trend.percent).toBe(300)
+    expect(trend.direction).toBe('up')
+    expect(trendSummary([-300, -50]).direction).toBe('flat')
   })
 
   it('marks meaningful late growth as up', () => {
@@ -261,6 +272,47 @@ describe('category spending small multiple helpers', () => {
 
     expect(Number.isFinite(model.actualHeight)).toBe(true)
     expect(Number.isFinite(model.budgetHeight)).toBe(true)
+  })
+})
+
+describe('signed bars', () => {
+  it('reserves room below zero only for cards with net-income months', () => {
+    const plain = categoryCardSummary(row('a', [100, 50]), [period('2026-01'), period('2026-02')])
+    const mixed = categoryCardSummary(row('b', [100, -40]), [period('2026-01'), period('2026-02')])
+    const tiny = categoryCardSummary(row('c', [1000, -1]), [period('2026-01'), period('2026-02')])
+
+    expect(plain.negativeMax).toBe(0)
+    expect(mixed.negativeMax).toBe(40)
+    expect(tiny.negativeMax).toBe(100)
+    expect(zeroLinePercent(plain.maxActualOrBudget, plain.negativeMax)).toBe(0)
+    expect(zeroLinePercent(mixed.maxActualOrBudget, mixed.negativeMax)).toBeCloseTo(28.57, 2)
+  })
+
+  it('scales positive and negative bars against one shared unit', () => {
+    const up = budgetBarModel({ actualAmount: 100, budgetAmount: null }, 100, true, 50)
+    const down = budgetBarModel({ actualAmount: -50, budgetAmount: null }, 100, true, 50)
+
+    expect(up).toMatchObject({ actualHeight: expect.closeTo(66.67, 1), negativeHeight: 0 })
+    expect(down).toMatchObject({ actualHeight: 0, negativeHeight: expect.closeTo(33.33, 1) })
+  })
+
+  it('counts a net-income month as under budget', () => {
+    const model = budgetBarModel({ actualAmount: -2500, budgetAmount: 1000 }, 1000, true, 2500)
+
+    expect(model.status).toBe('under')
+    expect(model.actualHeight).toBe(0)
+    expect(model.negativeHeight).toBeCloseTo(71.43, 2)
+  })
+
+  it('places gridlines on both sides of the zero line', () => {
+    const ticks = signedAxisTicks(300, 300)
+    const zero = zeroLinePercent(300, 300)
+
+    expect(zero).toBe(50)
+    expect(ticks.filter((tick) => tick.value > 0).every((tick) => tick.percent > zero)).toBe(true)
+    expect(ticks.filter((tick) => tick.value < 0).every((tick) => tick.percent < zero)).toBe(true)
+    expect(ticks.some((tick) => tick.value < 0)).toBe(true)
+    expect(signedAxisTicks(100, 0)).toEqual(axisTicks(100))
   })
 })
 

@@ -7,6 +7,9 @@ import { normalizeText } from '@/lib/utils'
 
 export const DEFAULT_VISIBLE_CATEGORY_COUNT = 6
 
+// Minimum below-zero room, as a share of the above-zero scale.
+const MIN_NEGATIVE_SHARE = 0.1
+
 export type CategorySpendingPreset =
   | 'top_spend'
   | 'over_budget'
@@ -21,7 +24,10 @@ export interface CategoryTrendSummary {
 }
 
 export interface BudgetBarModel {
+  /** Height of the above-zero bar, as a percent of the whole plot. */
   actualHeight: number
+  /** Height of the below-zero bar (net income month), as a percent of the whole plot. */
+  negativeHeight: number
   budgetHeight: number | null
   status: 'no_budget' | 'under' | 'over' | 'on_budget'
   actualLayer: 'front' | 'back'
@@ -49,6 +55,8 @@ export interface CategoryCardSummary {
   maxMonthlyActual: number
   minMonthlyActual: number
   maxActualOrBudget: number
+  /** Size of the below-zero scale; 0 when no month has income above spend. */
+  negativeMax: number
   hasOverBudget: boolean
 }
 
@@ -161,6 +169,16 @@ export function categoryCardSummary(
     return sum + Math.max(value.actualAmount - value.budgetAmount, 0)
   }, 0)
 
+  const maxActualOrBudget = Math.max(
+    ...values.map((value) => Math.max(value.actualAmount, value.budgetAmount ?? 0)),
+    1,
+  )
+  const lowestActual = actuals.length > 0 ? Math.min(...actuals) : 0
+  // Keep a visible sliver of room below zero even for tiny net-income months.
+  const negativeMax = lowestActual < 0
+    ? Math.max(-lowestActual, maxActualOrBudget * MIN_NEGATIVE_SHARE)
+    : 0
+
   return {
     row,
     periods: values.map((value) => value.period),
@@ -172,27 +190,37 @@ export function categoryCardSummary(
     totalOverage,
     maxMonthlyActual: Math.max(...actuals, 0),
     minMonthlyActual: actuals.length > 0 ? Math.min(...actuals) : 0,
-    maxActualOrBudget: Math.max(
-      ...values.map((value) => Math.max(value.actualAmount, value.budgetAmount ?? 0)),
-      1,
-    ),
+    maxActualOrBudget,
+    negativeMax,
     hasOverBudget: values.some((value) => value.budgetAmount != null && value.actualAmount > value.budgetAmount),
   }
 }
 
+/**
+ * Bar heights are percents of the whole plot, which spans `cardMax` above zero
+ * plus `cardNegativeMax` below it. Net-income months (negative actual) draw
+ * below zero and count as under budget.
+ */
 export function budgetBarModel(
   value: BudgetBarSource,
   cardMax: number,
   showBudgetOverlay: boolean,
+  cardNegativeMax = 0,
 ): BudgetBarModel {
-  const actualAmount = Math.max(barActualOf(value), 0)
+  const rawActual = barActualOf(value)
+  const actualAmount = Math.max(rawActual, 0)
   const budgetAmount = barBudgetOf(value)
   const max = Math.max(cardMax, 1)
-  const actualHeight = clampPercent((actualAmount / max) * 100)
+  const domain = max + Math.max(cardNegativeMax, 0)
+  const actualHeight = clampPercent((actualAmount / domain) * 100)
+  const negativeHeight = cardNegativeMax > 0
+    ? clampPercent((Math.max(-rawActual, 0) / domain) * 100)
+    : 0
 
   if (!showBudgetOverlay || budgetAmount == null) {
     return {
       actualHeight,
+      negativeHeight,
       budgetHeight: null,
       status: 'no_budget',
       actualLayer: 'front',
@@ -201,7 +229,7 @@ export function budgetBarModel(
   }
 
   const safeBudget = Math.max(budgetAmount, 0)
-  const budgetHeight = clampPercent((safeBudget / max) * 100)
+  const budgetHeight = clampPercent((safeBudget / domain) * 100)
   const status: BudgetBarModel['status'] = actualAmount > safeBudget
     ? 'over'
     : actualAmount < safeBudget
@@ -210,6 +238,7 @@ export function budgetBarModel(
 
   return {
     actualHeight,
+    negativeHeight,
     budgetHeight,
     status,
     actualLayer: status === 'over' ? 'back' : 'front',
@@ -217,18 +246,19 @@ export function budgetBarModel(
   }
 }
 
+/** Percent of the plot height that sits below the zero line. */
+export function zeroLinePercent(cardMax: number, cardNegativeMax: number): number {
+  if (cardNegativeMax <= 0) return 0
+  const domain = Math.max(cardMax, 1) + cardNegativeMax
+  return (cardNegativeMax / domain) * 100
+}
+
 export interface AxisTick {
   value: number
   percent: number
 }
 
-/**
- * Round-number gridlines (1/2/5 × 10^n) strictly inside (0, max], at most `maxTicks`.
- * Positions are percentages of `max`, matching how bar heights are scaled.
- */
-export function axisTicks(max: number, maxTicks = 3): AxisTick[] {
-  if (!Number.isFinite(max) || max <= 0 || maxTicks < 1) return []
-
+function niceStep(max: number, maxTicks: number): number {
   const magnitude = 10 ** Math.floor(Math.log10(max))
   let step = magnitude / 10
   search: for (let scale = magnitude / 10; scale <= magnitude * 10; scale *= 10) {
@@ -239,11 +269,44 @@ export function axisTicks(max: number, maxTicks = 3): AxisTick[] {
       }
     }
   }
+  return step
+}
 
+/**
+ * Round-number gridlines (1/2/5 × 10^n) strictly inside (0, max], at most `maxTicks`.
+ * Positions are percentages of `max`, matching how bar heights are scaled.
+ */
+export function axisTicks(max: number, maxTicks = 3): AxisTick[] {
+  if (!Number.isFinite(max) || max <= 0 || maxTicks < 1) return []
+
+  const step = niceStep(max, maxTicks)
   const ticks: AxisTick[] = []
   for (let i = 1; i * step <= max * (1 + 1e-9); i += 1) {
     const value = Math.round(i * step * 1e6) / 1e6
     ticks.push({ value, percent: (value / max) * 100 })
+  }
+  return ticks
+}
+
+/**
+ * Gridlines for a plot with a below-zero part. `percent` is the distance from
+ * the plot bottom as a share of the whole plot; below-zero ticks have negative values.
+ */
+export function signedAxisTicks(max: number, negativeMax: number, maxTicks = 3): AxisTick[] {
+  if (negativeMax <= 0) return axisTicks(max, maxTicks)
+  if (!Number.isFinite(max) || max <= 0 || maxTicks < 1) return []
+
+  const domain = max + negativeMax
+  const zero = zeroLinePercent(max, negativeMax)
+  const step = niceStep(domain, maxTicks)
+  const ticks: AxisTick[] = []
+  for (let i = 1; i * step <= max * (1 + 1e-9); i += 1) {
+    const value = Math.round(i * step * 1e6) / 1e6
+    ticks.push({ value, percent: zero + (value / domain) * 100 })
+  }
+  for (let i = 1; i * step <= negativeMax * (1 + 1e-9); i += 1) {
+    const value = Math.round(i * step * 1e6) / 1e6
+    ticks.push({ value: -value, percent: zero - (value / domain) * 100 })
   }
   return ticks
 }
