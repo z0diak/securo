@@ -29,6 +29,7 @@ import {
   groups as groupsApi,
   accounts as accountsApi,
   transactions as transactionsApi,
+  currencies as currenciesApi,
   type GroupMemberPayload,
   type GroupSettlementPayload,
 } from '@/lib/api'
@@ -39,6 +40,7 @@ import { useWorkspace } from '@/contexts/workspace-context'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { CurrencySelect } from '@/components/currency-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog,
@@ -186,6 +188,12 @@ export default function GroupDetailPage() {
     queryKey: ['groups', groupId, 'balances'],
     queryFn: () => groupsApi.balances(groupId),
     enabled: !!groupId,
+  })
+
+  const { data: supportedCurrencies } = useQuery({
+    queryKey: ['currencies'],
+    queryFn: currenciesApi.list,
+    staleTime: Infinity,
   })
 
   const { data: settlements } = useQuery({
@@ -1150,10 +1158,10 @@ export default function GroupDetailPage() {
               </div>
               <div className="space-y-2">
                 <Label>{t('splitGroups.currency')}</Label>
-                <Input
+                <CurrencySelect
                   value={settleCurrency}
-                  maxLength={3}
-                  onChange={(e) => setSettleCurrency(e.target.value.toUpperCase())}
+                  onChange={setSettleCurrency}
+                  options={supportedCurrencies}
                   disabled={settleTxMode === 'existing'}
                 />
               </div>

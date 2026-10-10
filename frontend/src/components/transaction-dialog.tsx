@@ -16,6 +16,7 @@ import { cn, normalizeText } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { CurrencySelect } from '@/components/currency-select'
 import { DatePickerInput } from '@/components/ui/date-picker-input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/components/ui/command'
@@ -1023,16 +1024,12 @@ function TransactionForm({
         </div>
         <div className="space-y-2">
           <Label>{t('transactions.currency')}</Label>
-          <select
-            className="w-full border border-border rounded-md px-3 py-2 text-sm bg-card h-9 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
+          <CurrencySelect
             value={currency}
-            onChange={(e) => handleCurrencyChange(e.target.value)}
+            onChange={handleCurrencyChange}
+            options={supportedCurrencies}
             disabled={isSynced}
-          >
-            {(supportedCurrencies ?? [{ code: userCurrency, symbol: userCurrency, name: userCurrency, flag: '' }]).map((c) => (
-              <option key={c.code} value={c.code}>{c.flag} {c.name}</option>
-            ))}
-          </select>
+          />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3 sm:gap-4">

@@ -2107,6 +2107,8 @@
     "selectTimezone": "Tijdzone kiezen",
     "searchTimezone": "Tijdzone zoeken...",
     "noTimezoneFound": "Geen tijdzone gevonden.",
+    "searchCurrency": "Valuta zoeken...",
+    "noCurrencyFound": "Geen valuta gevonden.",
     "createNamed": "\"{{name}}\" aanmaken",
     "view": "Bekijk",
     "add": "Toevoegen",

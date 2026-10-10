@@ -1,11 +1,17 @@
+import { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { CheckIcon, ChevronDownIcon } from 'lucide-react'
+
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { cn } from '@/lib/utils'
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
+import { cn, normalizeText } from '@/lib/utils'
 
 // Shared across the setup and register flows. A compact dropdown keeps these
 // forms short instead of rendering one button per currency in a tall grid.
@@ -56,28 +62,143 @@ export const CURRENCIES = [
   { code: 'RSD', flag: '\u{1F1F7}\u{1F1F8}', symbol: 'RSD' },
 ] as const
 
+export interface CurrencyOption {
+  code: string
+  flag?: string
+  symbol?: string
+  name?: string
+}
+
 interface CurrencySelectProps {
   value: string
   onChange: (code: string) => void
+  /**
+   * Currencies to offer. Defaults to the built-in list; pages that load the
+   * server's list from `currencies.list` pass it here. The current value is
+   * always shown, even when the list has not loaded or does not include it.
+   */
+  options?: readonly CurrencyOption[]
   id?: string
+  disabled?: boolean
   className?: string
 }
 
-export function CurrencySelect({ value, onChange, id, className }: CurrencySelectProps) {
+function currencyName(code: string, language: string): string | undefined {
+  try {
+    return new Intl.DisplayNames([language, 'en'], { type: 'currency' }).of(code)
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * A searchable currency picker. Open it and type a code ("brl"), a name
+ * ("real", "dolar") or a symbol ("R$") to narrow the list; Enter picks the
+ * highlighted row. Code matches that start with the query sort first.
+ */
+export function CurrencySelect({
+  value,
+  onChange,
+  options = CURRENCIES,
+  id,
+  disabled = false,
+  className,
+}: CurrencySelectProps) {
+  const { t, i18n } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+
+  const items = useMemo(() => {
+    const list: CurrencyOption[] = options.some((c) => c.code === value)
+      ? [...options]
+      : [{ code: value }, ...options]
+    return list.map((c) => ({
+      ...c,
+      name: c.name || currencyName(c.code, i18n.language),
+    }))
+  }, [options, value, i18n.language])
+
+  const selected = items.find((c) => c.code === value)
+
+  function handleOpenChange(next: boolean) {
+    setOpen(next)
+    if (!next) setSearch('')
+  }
+
+  function choose(code: string) {
+    onChange(code)
+    handleOpenChange(false)
+  }
+
   return (
-    <Select value={value} onValueChange={onChange}>
-      <SelectTrigger id={id} className={cn('w-full', className)}>
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {CURRENCIES.map(({ code, flag, symbol }) => (
-          <SelectItem key={code} value={code}>
-            <span className="text-base leading-none">{flag}</span>
-            <span className="font-medium">{code}</span>
-            <span className="text-muted-foreground text-xs">{symbol}</span>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <Popover open={open} onOpenChange={handleOpenChange}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          id={id}
+          role="combobox"
+          aria-expanded={open}
+          disabled={disabled}
+          className={cn(
+            'flex h-9 w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-input bg-card px-3 py-2 text-left text-sm shadow-xs transition-[color,box-shadow] outline-hidden focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 dark:hover:bg-input/50',
+            className,
+          )}
+        >
+          <span className="flex min-w-0 items-center gap-2 truncate">
+            {selected?.flag && <span className="text-base leading-none">{selected.flag}</span>}
+            <span className="font-medium">{value}</span>
+            {selected?.symbol && (
+              <span className="text-xs text-muted-foreground">{selected.symbol}</span>
+            )}
+          </span>
+          <ChevronDownIcon className="size-4 shrink-0 opacity-50" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-[var(--radix-popover-trigger-width)] min-w-64 overflow-hidden p-0"
+      >
+        <Command
+          filter={(itemValue, query) => {
+            const haystack = normalizeText(itemValue)
+            const needle = normalizeText(query.trim())
+            if (!needle) return 1
+            if (haystack.startsWith(needle)) return 2
+            return haystack.includes(needle) ? 1 : 0
+          }}
+        >
+          <CommandInput
+            placeholder={t('common.searchCurrency')}
+            value={search}
+            onValueChange={setSearch}
+          />
+          <CommandList>
+            <CommandEmpty>{t('common.noCurrencyFound')}</CommandEmpty>
+            <CommandGroup>
+              {items.map(({ code, flag, symbol, name }) => (
+                <CommandItem
+                  key={code}
+                  value={`${code} ${name ?? ''} ${symbol ?? ''}`}
+                  onSelect={() => choose(code)}
+                  className="cursor-pointer"
+                >
+                  {flag && <span className="text-base leading-none">{flag}</span>}
+                  <span className="font-medium">{code}</span>
+                  {name && (
+                    <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                      {name}
+                    </span>
+                  )}
+                  {symbol && !name && (
+                    <span className="flex-1 text-xs text-muted-foreground">{symbol}</span>
+                  )}
+                  {code === value && <CheckIcon className="size-4 shrink-0" />}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   )
 }

@@ -13,6 +13,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { CurrencySelect } from '@/components/currency-select'
 import {
   Dialog,
   DialogContent,
@@ -788,15 +789,12 @@ function AccountDialog({
                 </div>
                 <div className="space-y-2">
                   <Label>{t('accounts.currency')}</Label>
-                  <select
-                    className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                  <CurrencySelect
                     value={currency}
-                    onChange={(e) => setCurrency(e.target.value)}
-                  >
-                    {(supportedCurrencies ?? [{ code: userCurrency, symbol: userCurrency, name: userCurrency, flag: '' }]).map((c) => (
-                      <option key={c.code} value={c.code}>{c.flag} {c.name}</option>
-                    ))}
-                  </select>
+                    onChange={setCurrency}
+                    options={supportedCurrencies}
+                    className="rounded-lg h-auto"
+                  />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">

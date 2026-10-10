@@ -2105,6 +2105,8 @@
     "selectTimezone": "Επιλογή ζώνης ώρας",
     "searchTimezone": "Αναζήτηση ζώνης ώρας...",
     "noTimezoneFound": "Δεν βρέθηκε ζώνη ώρας.",
+    "searchCurrency": "Αναζήτηση νομίσματος...",
+    "noCurrencyFound": "Δεν βρέθηκε νόμισμα.",
     "createNamed": "Δημιουργία «{{name}}»",
     "view": "Προβολή",
     "add": "Προσθήκη",

@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { DeleteConfirmationDialog } from '@/components/delete-confirmation-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { CurrencySelect } from '@/components/currency-select'
 import {
   Dialog,
   DialogContent,
@@ -378,11 +379,7 @@ function RecurringForm({
         </div>
         <div className="space-y-2">
           <Label>{t('recurring.currency')}</Label>
-          <select className={selectClass} value={currency} onChange={(e) => setCurrency(e.target.value)}>
-            {(supportedCurrencies ?? [{ code: userCurrency, symbol: userCurrency, name: userCurrency, flag: '' }]).map((c) => (
-              <option key={c.code} value={c.code}>{c.flag} {c.name}</option>
-            ))}
-          </select>
+          <CurrencySelect value={currency} onChange={setCurrency} options={supportedCurrencies} />
         </div>
         <div className="space-y-2">
           <Label>{t('recurring.type')}</Label>

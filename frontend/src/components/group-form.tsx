@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { currencies as currenciesApi } from '@/lib/api'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { CurrencySelect } from '@/components/currency-select'
 import type { GroupKind } from '@/types'
 
 const KIND_OPTIONS: { value: GroupKind; tKey: string }[] = [
@@ -69,19 +70,11 @@ export function GroupForm({
       </div>
       <div className="space-y-2">
         <Label>{t('splitGroups.defaultCurrency')}</Label>
-        <select
-          className="w-full border border-border rounded-md px-3 py-2 text-sm bg-card h-9 focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
+        <CurrencySelect
           value={defaultCurrency}
-          onChange={(e) => onChangeDefaultCurrency(e.target.value)}
-        >
-          {(supportedCurrencies ?? [
-            { code: defaultCurrency, symbol: defaultCurrency, name: defaultCurrency, flag: '' },
-          ]).map((c) => (
-            <option key={c.code} value={c.code}>
-              {c.flag} {c.name}
-            </option>
-          ))}
-        </select>
+          onChange={onChangeDefaultCurrency}
+          options={supportedCurrencies}
+        />
       </div>
       <div className="space-y-2">
         <Label>{t('splitGroups.notes')}</Label>

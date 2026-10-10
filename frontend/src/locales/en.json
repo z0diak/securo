@@ -2105,6 +2105,8 @@
     "selectTimezone": "Select timezone",
     "searchTimezone": "Search timezone...",
     "noTimezoneFound": "No timezone found.",
+    "searchCurrency": "Search currency...",
+    "noCurrencyFound": "No currency found.",
     "createNamed": "Create \"{{name}}\"",
     "view": "View",
     "add": "Add",

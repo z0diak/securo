@@ -99,3 +99,81 @@ describe('CurrencySelect', () => {
     expect(screen.getByLabelText('Currency')).toBeInTheDocument()
   })
 })
+
+describe('CurrencySelect search', () => {
+  it('narrows the list by typed code', async () => {
+    const { user } = renderWithProviders(
+      <CurrencySelect value="USD" onChange={vi.fn()} />,
+    )
+
+    await user.click(screen.getByRole('combobox'))
+    await user.type(screen.getByPlaceholderText(/search/i), 'brl')
+
+    const options = await screen.findAllByRole('option')
+    expect(options).toHaveLength(1)
+    expect(options[0]).toHaveTextContent('BRL')
+  })
+
+  it('picks the highlighted match with Enter', async () => {
+    const onChange = vi.fn()
+    const { user } = renderWithProviders(
+      <CurrencySelect value="USD" onChange={onChange} />,
+    )
+
+    await user.click(screen.getByRole('combobox'))
+    await user.type(screen.getByPlaceholderText(/search/i), 'jp{Enter}')
+
+    expect(onChange).toHaveBeenCalledWith('JPY')
+  })
+
+  it('matches by currency name and by symbol', async () => {
+    const { user } = renderWithProviders(
+      <CurrencySelect value="USD" onChange={vi.fn()} />,
+    )
+
+    await user.click(screen.getByRole('combobox'))
+    await user.type(screen.getByPlaceholderText(/search/i), 'zloty')
+    expect(await screen.findByRole('option', { name: /PLN/ })).toBeInTheDocument()
+
+    await user.clear(screen.getByPlaceholderText(/search/i))
+    await user.type(screen.getByPlaceholderText(/search/i), 'R$')
+    expect(await screen.findByRole('option', { name: /BRL/ })).toBeInTheDocument()
+  })
+
+  it('ranks a code prefix ahead of other matches', async () => {
+    const { user } = renderWithProviders(
+      <CurrencySelect value="EUR" onChange={vi.fn()} />,
+    )
+
+    await user.click(screen.getByRole('combobox'))
+    await user.type(screen.getByPlaceholderText(/search/i), 'us')
+
+    const options = await screen.findAllByRole('option')
+    expect(options[0]).toHaveTextContent('USD')
+  })
+
+  it('shows an empty state when nothing matches', async () => {
+    const { user } = renderWithProviders(
+      <CurrencySelect value="USD" onChange={vi.fn()} />,
+    )
+
+    await user.click(screen.getByRole('combobox'))
+    await user.type(screen.getByPlaceholderText(/search/i), 'zzzz')
+
+    expect(screen.queryAllByRole('option')).toHaveLength(0)
+  })
+
+  it('offers the server list and keeps an unlisted current value', async () => {
+    const { user } = renderWithProviders(
+      <CurrencySelect
+        value="XYZ"
+        onChange={vi.fn()}
+        options={[{ code: 'EUR', symbol: '€', name: 'Euro', flag: '' }]}
+      />,
+    )
+
+    expect(screen.getByRole('combobox')).toHaveTextContent('XYZ')
+    await user.click(screen.getByRole('combobox'))
+    expect(await screen.findAllByRole('option')).toHaveLength(2)
+  })
+})
