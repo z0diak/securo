@@ -860,6 +860,7 @@
     "drillDownSettledTotal": "Διακανονισμένα · συνολικό ποσό",
     "drillDownPendingTotal": "Εκκρεμεί διακανονισμός",
     "drillDownShownTotal": "Εμφανιζόμενο σύνολο",
+    "drillDownShownNetTotal": "Καθαρό σύνολο",
     "drillDownEmpty": "Δεν βρέθηκαν συναλλαγές",
     "drillDownClose": "Κλείσιμο",
     "accrualNote": "Οι συναλλαγές πιστωτικών καρτών ομαδοποιούνται κατά την ημερομηνία λήξης του λογαριασμού (λειτουργία δεδουλευμένων).",

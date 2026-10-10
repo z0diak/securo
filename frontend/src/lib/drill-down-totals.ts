@@ -4,6 +4,7 @@
  * tested without standing up the panel.
  */
 export type DrillDownTotalsItem = {
+  type?: 'debit' | 'credit'
   amount: number
   amountPrimary: number | null
   currency: string
@@ -16,6 +17,8 @@ export type DrillDownTotals = {
   postedTotal: number
   pendingTotal: number
   projectedTotal: number
+  /** Rows run in both directions, so every figure above is a signed net. */
+  isNet: boolean
 }
 
 /**
@@ -29,6 +32,14 @@ export type DrillDownTotals = {
  * projections from falling through the gaps: they have no transaction behind
  * them, so a status test can never place them.
  *
+ * When the rows run in both directions a sum of magnitudes means nothing, so
+ * the figures turn into a net instead: credits count positive, debits
+ * negative, and the buckets still add back up to `absTotal`.
+ *
+ * When the rows run in both directions a sum of magnitudes means nothing, so
+ * the figures turn into a net instead: credits count positive, debits
+ * negative, and the buckets still add back up to `absTotal`.
+ *
  * Foreign-currency rows are converted through `amountPrimary`; when that is
  * missing the row is skipped rather than added as if its raw amount were
  * already in the user's currency. This matches how `get_summary` computes
@@ -38,13 +49,17 @@ export function sumDrillDownTotals(
   items: DrillDownTotalsItem[],
   userCurrency: string,
 ): DrillDownTotals {
+  const isNet = items.some((item) => item.type === 'credit')
+    && items.some((item) => item.type === 'debit')
+
   return items.reduce<DrillDownTotals>(
     (totals, item) => {
-      const amount = item.currency === userCurrency
+      const magnitude = item.currency === userCurrency
         ? Math.abs(item.amount)
         : item.amountPrimary != null
           ? Math.abs(item.amountPrimary)
           : 0
+      const amount = isNet && item.type === 'debit' ? -magnitude : magnitude
 
       totals.absTotal += amount
       if (item.isProjected) totals.projectedTotal += amount
@@ -52,6 +67,6 @@ export function sumDrillDownTotals(
       else totals.postedTotal += amount
       return totals
     },
-    { absTotal: 0, postedTotal: 0, pendingTotal: 0, projectedTotal: 0 },
+    { absTotal: 0, postedTotal: 0, pendingTotal: 0, projectedTotal: 0, isNet },
   )
 }

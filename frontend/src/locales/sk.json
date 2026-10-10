@@ -868,6 +868,7 @@
     "drillDownSettledTotal": "Zúčtované · súhrnná suma",
     "drillDownPendingTotal": "Čaká na zúčtovanie",
     "drillDownShownTotal": "Zobrazená suma",
+    "drillDownShownNetTotal": "Čistá suma",
     "drillDownEmpty": "Nenašli sa žiadne transakcie",
     "drillDownClose": "Zavrieť",
     "accrualNote": "Transakcie kreditnou kartou sú zoskupené podľa dátumu splatnosti výpisu (akruálny režim).",

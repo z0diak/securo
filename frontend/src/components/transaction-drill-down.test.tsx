@@ -85,4 +85,35 @@ describe('TransactionDrillDown', () => {
 
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
   })
+
+  it('reports a net total when the list runs in both directions', async () => {
+    const tx = (id: string, type: 'debit' | 'credit', amount: number) => ({
+      id, type, amount, amount_primary: null, currency: 'USD', description: id,
+      date: '2026-04-10', status: 'posted', category: null, attachment_count: 0,
+    })
+    vi.mocked(transactions.list).mockResolvedValue({
+      items: [tx('refund', 'credit', 300), tx('shop', 'debit', 100)],
+      total: 2,
+    } as never)
+
+    renderPanel({ dialogOpen: false })
+
+    expect(await screen.findByText('Net total')).toBeInTheDocument()
+    expect(screen.getByText('$200.00')).toBeInTheDocument()
+  })
+
+  it('keeps the plain total when every row goes the same way', async () => {
+    vi.mocked(transactions.list).mockResolvedValue({
+      items: [{
+        id: 'shop', type: 'debit', amount: 100, amount_primary: null, currency: 'USD',
+        description: 'shop', date: '2026-04-10', status: 'posted', category: null, attachment_count: 0,
+      }],
+      total: 1,
+    } as never)
+
+    renderPanel({ dialogOpen: false })
+
+    expect(await screen.findByText('1 transactions · $100.00')).toBeInTheDocument()
+    expect(screen.queryByText('Net total')).not.toBeInTheDocument()
+  })
 })

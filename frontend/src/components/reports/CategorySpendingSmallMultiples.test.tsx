@@ -165,7 +165,6 @@ describe('CategorySpendingSmallMultiples', () => {
     await user.click(screen.getByTestId('month-bar-uncategorized-2026-04'))
     expect(onDrillDown).toHaveBeenCalledWith(expect.objectContaining({
       uncategorized: true,
-      type: 'debit',
       from: '2026-04-01',
       to: '2026-04-30',
     }))
@@ -345,17 +344,17 @@ describe('CategorySpendingSmallMultiples', () => {
     expect(bar).toHaveAttribute('data-budget-status', 'over')
   })
 
-  it('opens drilldown from a month bar with inclusive period end', async () => {
+  it('opens drilldown from a month bar with inclusive period end and no direction filter', async () => {
     const { user, onDrillDown } = renderComponent()
 
     await user.click(screen.getByTestId('month-bar-groceries-2026-04'))
 
     expect(onDrillDown).toHaveBeenCalledWith(expect.objectContaining({
       category_id: 'groceries',
-      type: 'debit',
       from: '2026-04-01',
       to: '2026-04-30',
     }))
+    expect(onDrillDown.mock.calls[0][0]).not.toHaveProperty('type')
   })
 
   it('masks metric and tooltip money values in privacy mode', () => {
@@ -385,9 +384,9 @@ describe('CategorySpendingSmallMultiples', () => {
     expect(screen.getByTestId('axis-label-groceries-200')).toHaveTextContent('MASK')
   })
 
-  it('draws net-income months below a raised zero line and drills into both directions', async () => {
+  it('draws net-income months below a raised zero line', () => {
     const rental = row('rental', 'Rental', 'Home', [300, -200, 400, 100], [1000, 1000, 1000, 1000])
-    const { user, onDrillDown } = renderComponent({ data: matrix([rental]) })
+    renderComponent({ data: matrix([rental]) })
 
     const incomeBar = screen.getByTestId('actual-bar-rental-2026-02')
     const spendBar = screen.getByTestId('actual-bar-rental-2026-03')
@@ -398,13 +397,6 @@ describe('CategorySpendingSmallMultiples', () => {
     expect(screen.getByTestId('month-bar-rental-2026-02').getAttribute('title'))
       .toContain(`${t('reports.netIncome')}: $200.00`)
     expect(screen.getByTestId('month-bar-rental-2026-02')).toHaveAttribute('data-budget-status', 'under')
-
-    await user.click(screen.getByTestId('month-bar-rental-2026-02'))
-    expect(onDrillDown.mock.calls[0][0]).toMatchObject({ category_id: 'rental', from: '2026-02-01' })
-    expect(onDrillDown.mock.calls[0][0]).not.toHaveProperty('type')
-
-    await user.click(screen.getByTestId('month-bar-rental-2026-03'))
-    expect(onDrillDown.mock.calls[1][0]).toMatchObject({ type: 'debit' })
   })
 
   it('sizes cards and bar columns so a 12-month card fits without scrolling', () => {

@@ -540,8 +540,6 @@ function MonthBar({
       ...(card.row.category_id === 'uncategorized'
         ? { uncategorized: true }
         : { category_id: card.row.category_id }),
-      // A net-income month is mostly credits, so list both directions.
-      ...(netIncome ? {} : { type: 'debit' as const }),
       from: value.period.start,
       to: inclusivePeriodEnd(value.period.end),
     })
