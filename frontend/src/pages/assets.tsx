@@ -9,6 +9,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { CurrencySelect } from '@/components/currency-select'
 import {
   Dialog,
   DialogContent,
@@ -1204,16 +1205,13 @@ export default function AssetsPage() {
               </div>
               <div className="space-y-2">
                 <Label>{t('assets.currency')}</Label>
-                <select
-                  className="bg-card border border-border focus:outline-none focus:ring-2 focus:ring-primary px-3 py-2 rounded-lg text-foreground text-sm w-full disabled:opacity-60 disabled:cursor-not-allowed"
+                <CurrencySelect
                   value={formCurrency}
                   disabled={formMethod === 'market_price'}
-                  onChange={e => setFormCurrency(e.target.value)}
-                >
-                  {(supportedCurrencies ?? [{ code: userCurrency, symbol: userCurrency, name: userCurrency, flag: '' }]).map((c) => (
-                    <option key={c.code} value={c.code}>{c.flag} {c.name}</option>
-                  ))}
-                </select>
+                  onChange={setFormCurrency}
+                  options={supportedCurrencies}
+                  className="rounded-lg h-auto"
+                />
               </div>
             </div>
 

@@ -2106,6 +2106,8 @@
     "selectTimezone": "Zeitzone wählen",
     "searchTimezone": "Zeitzone suchen...",
     "noTimezoneFound": "Keine Zeitzone gefunden.",
+    "searchCurrency": "Währung suchen...",
+    "noCurrencyFound": "Keine Währung gefunden.",
     "createNamed": "„{{name}}“ erstellen",
     "view": "Ansehen",
     "add": "Hinzufügen",

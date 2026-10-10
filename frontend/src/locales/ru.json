@@ -2118,6 +2118,8 @@
     "selectTimezone": "Выберите часовой пояс",
     "searchTimezone": "Поиск часового пояса...",
     "noTimezoneFound": "Часовой пояс не найден.",
+    "searchCurrency": "Поиск валюты...",
+    "noCurrencyFound": "Валюта не найдена.",
     "createNamed": "Создать «{{name}}»",
     "view": "Просмотр",
     "add": "Добавить",

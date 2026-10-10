@@ -2118,6 +2118,8 @@
     "selectTimezone": "Виберіть часовий пояс",
     "searchTimezone": "Пошук часового поясу...",
     "noTimezoneFound": "Часовий пояс не знайдено.",
+    "searchCurrency": "Пошук валюти...",
+    "noCurrencyFound": "Валюту не знайдено.",
     "createNamed": "Створити «{{name}}»",
     "view": "Переглянути",
     "add": "Додати",

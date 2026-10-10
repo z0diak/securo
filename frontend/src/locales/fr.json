@@ -2106,6 +2106,8 @@
     "selectTimezone": "Choisir un fuseau horaire",
     "searchTimezone": "Rechercher un fuseau horaire...",
     "noTimezoneFound": "Aucun fuseau horaire trouvé.",
+    "searchCurrency": "Rechercher une devise...",
+    "noCurrencyFound": "Aucune devise trouvée.",
     "createNamed": "Créer « {{name}} »",
     "view": "Voir",
     "add": "Ajouter",

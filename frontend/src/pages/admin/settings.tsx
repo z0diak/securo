@@ -10,6 +10,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { CurrencySelect } from '@/components/currency-select'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -21,13 +22,6 @@ import {
   DialogFooter,
   DialogDescription,
 } from '@/components/ui/dialog'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { PageHeader } from '@/components/page-header'
 import { TimezoneSettings } from '@/components/timezone-settings'
 import { setThemeBasedOnSystem } from '@/lib/theme-utils'
@@ -667,18 +661,12 @@ export default function AdminSettingsPage() {
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-[13px]">{t('setup.currency')}</Label>
-                  <Select value={formCurrency} onValueChange={setFormCurrency}>
-                    <SelectTrigger className="h-10 rounded-lg w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(supportedCurrencies ?? []).map((c) => (
-                        <SelectItem key={c.code} value={c.code}>
-                          {c.flag} {c.code} — {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <CurrencySelect
+                    value={formCurrency}
+                    onChange={setFormCurrency}
+                    options={supportedCurrencies}
+                    className="h-10 rounded-lg"
+                  />
                 </div>
               </div>
               <button

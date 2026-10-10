@@ -2196,6 +2196,8 @@
     "selectTimezone": "Wybierz strefę czasową",
     "searchTimezone": "Szukaj strefy czasowej...",
     "noTimezoneFound": "Nie znaleziono strefy czasowej.",
+    "searchCurrency": "Szukaj waluty...",
+    "noCurrencyFound": "Nie znaleziono waluty.",
     "createNamed": "Utwórz „{{name}}”",
     "view": "Zobacz",
     "add": "Dodaj",

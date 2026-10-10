@@ -13,6 +13,7 @@ import { useLocalAuthEnabled } from '@/hooks/use-local-auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { CurrencySelect } from '@/components/currency-select'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -417,23 +418,14 @@ export default function WorkspaceSettingsPage() {
               <Label htmlFor="ws-currency" className="text-[13px]">
                 {t('workspace.defaultCurrency')}
               </Label>
-              <Select
+              <CurrencySelect
+                id="ws-currency"
                 value={editCurrency}
-                onValueChange={setEditCurrency}
+                onChange={setEditCurrency}
+                options={supportedCurrencies}
                 disabled={!canManage}
-              >
-                <SelectTrigger id="ws-currency" className="h-10 rounded-lg w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(supportedCurrencies ?? [{ code: editCurrency, symbol: editCurrency, name: editCurrency, flag: '' }]).map((c) => (
-                    <SelectItem key={c.code} value={c.code}>
-                      <span className="mr-2">{c.flag}</span>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                className="h-10 rounded-lg"
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="ws-locale" className="text-[13px]">

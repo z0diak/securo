@@ -2106,6 +2106,8 @@
     "selectTimezone": "Seleziona fuso orario",
     "searchTimezone": "Cerca fuso orario...",
     "noTimezoneFound": "Nessun fuso orario trovato.",
+    "searchCurrency": "Cerca valuta...",
+    "noCurrencyFound": "Nessuna valuta trovata.",
     "createNamed": "Crea \"{{name}}\"",
     "view": "Visualizza",
     "add": "Aggiungi",

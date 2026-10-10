@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { DatePickerInput } from '@/components/ui/date-picker-input'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { CurrencySelect } from '@/components/currency-select'
 import {
   Dialog,
   DialogContent,
@@ -150,6 +151,7 @@ export default function GoalsPage() {
   const [selectedIcon, setSelectedIcon] = useState('target')
   const [selectedColor, setSelectedColor] = useState('#3B82F6')
   const [targetDate, setTargetDate] = useState('')
+  const [goalCurrency, setGoalCurrency] = useState(userCurrency)
 
   const { data: goalsList } = useQuery({
     queryKey: ['goals', statusFilter],
@@ -222,6 +224,7 @@ export default function GoalsPage() {
     setSelectedIcon('target')
     setSelectedColor('#3B82F6')
     setTargetDate('')
+    setGoalCurrency(userCurrency)
     setDialogOpen(true)
   }
 
@@ -231,6 +234,7 @@ export default function GoalsPage() {
     setSelectedIcon(goal.icon ?? 'target')
     setSelectedColor(goal.color ?? '#3B82F6')
     setTargetDate(goal.target_date ?? '')
+    setGoalCurrency(goal.currency ?? userCurrency)
     setDialogOpen(true)
   }
 
@@ -436,7 +440,7 @@ export default function GoalsPage() {
               const payload: Record<string, unknown> = {
                 name: formData.get('name') as string,
                 target_amount: parseFloat(formData.get('target_amount') as string),
-                currency: (formData.get('currency') as string) || userCurrency,
+                currency: goalCurrency || userCurrency,
                 tracking_type: formData.get('tracking_type') as string,
                 target_date: targetDate || null,
                 icon: selectedIcon || null,
@@ -483,17 +487,12 @@ export default function GoalsPage() {
               </div>
               <div className="space-y-2">
                 <Label>{t('goals.currency')}</Label>
-                <select
-                  name="currency"
-                  defaultValue={editing?.currency ?? userCurrency}
-                  className={SELECT_CLASS}
-                >
-                  {supportedCurrencies?.map((c: { code: string; name: string; flag: string }) => (
-                    <option key={c.code} value={c.code}>
-                      {c.flag} {c.name} ({c.code})
-                    </option>
-                  ))}
-                </select>
+                <CurrencySelect
+                  value={goalCurrency}
+                  onChange={setGoalCurrency}
+                  options={supportedCurrencies}
+                  className="rounded-lg h-auto"
+                />
               </div>
             </div>
 
