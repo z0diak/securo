@@ -860,6 +860,7 @@
     "drillDownSettledTotal": "Gebucht · Zusammenfassungssumme",
     "drillDownPendingTotal": "Ausstehende Abrechnung",
     "drillDownShownTotal": "Angezeigte Summe",
+    "drillDownShownNetTotal": "Nettosumme",
     "drillDownEmpty": "Keine Transaktionen gefunden",
     "drillDownClose": "Schließen",
     "accrualNote": "Kreditkartentransaktionen werden nach dem Fälligkeitsdatum der Abrechnung gruppiert (Soll-Modus).",

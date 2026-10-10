@@ -860,6 +860,7 @@
     "drillDownSettledTotal": "Liquidado · valor resumido",
     "drillDownPendingTotal": "Pendente de liquidação",
     "drillDownShownTotal": "Total apresentado",
+    "drillDownShownNetTotal": "Total líquido",
     "drillDownEmpty": "Nenhuma transação encontrada",
     "drillDownClose": "Fechar",
     "accrualNote": "Transações de cartão de crédito são agrupadas pela data de vencimento da fatura (modo competência).",

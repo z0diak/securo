@@ -182,14 +182,14 @@ export function TransactionDrillDown({
   // amount_primary; if it's missing we can't convert, so skip the row
   // instead of adding a raw foreign amount as if it were primary. This
   // matches how get_summary computes monthly_*_primary on the backend.
-  const { absTotal, postedTotal, pendingTotal, projectedTotal } =
+  const { absTotal, postedTotal, pendingTotal, projectedTotal, isNet } =
     sumDrillDownTotals(displayItems, userCurrency)
 
   // Break the total down whenever some of it is money that has not settled,
   // whether it is pending or still only projected. Gating on pending alone
   // hid the projected line from a panel that happened to have no pending row,
   // even though the total it sits under already counted the projection.
-  const hasUnsettledTotal = pendingTotal > 0 || projectedTotal > 0
+  const hasUnsettledTotal = pendingTotal !== 0 || projectedTotal !== 0
 
   return (
     <>
@@ -321,24 +321,26 @@ export function TransactionDrillDown({
                   <span>{t('dashboard.drillDownPendingTotal')}</span>
                   <span className="tabular-nums text-foreground">{mask(formatCurrency(pendingTotal, userCurrency, locale))}</span>
                 </div>
-                {projectedTotal > 0 && (
+                {projectedTotal !== 0 && (
                   <div className="flex items-center justify-between gap-4 text-xs text-muted-foreground">
                     <span>{t('transactions.projected')}</span>
                     <span className="tabular-nums text-foreground">{mask(formatCurrency(projectedTotal, userCurrency, locale))}</span>
                   </div>
                 )}
                 <div className="flex items-center justify-between gap-4 border-t border-border pt-2 mt-2">
-                  <span className="text-xs font-medium text-muted-foreground">{t('dashboard.drillDownShownTotal')}</span>
+                  <span className="text-xs font-medium text-muted-foreground">{isNet ? t('dashboard.drillDownShownNetTotal') : t('dashboard.drillDownShownTotal')}</span>
                   <span className="text-sm font-bold tabular-nums text-foreground">{mask(formatCurrency(absTotal, userCurrency, locale))}</span>
                 </div>
               </div>
             ) : (
               <div className="flex items-center justify-between">
                 <span className="text-xs text-muted-foreground">
-                  {t('dashboard.drillDownTotal', {
-                    count: displayItems.length,
-                    total: mask(formatCurrency(absTotal, userCurrency, locale)),
-                  })}
+                  {isNet
+                    ? t('dashboard.drillDownShownNetTotal')
+                    : t('dashboard.drillDownTotal', {
+                        count: displayItems.length,
+                        total: mask(formatCurrency(absTotal, userCurrency, locale)),
+                      })}
                 </span>
                 <span className="text-sm font-bold tabular-nums text-foreground">
                   {mask(formatCurrency(absTotal, userCurrency, locale))}

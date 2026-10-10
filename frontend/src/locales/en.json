@@ -860,6 +860,7 @@
     "drillDownSettledTotal": "Settled · card total",
     "drillDownPendingTotal": "Pending settlement",
     "drillDownShownTotal": "Total shown",
+    "drillDownShownNetTotal": "Net total",
     "drillDownEmpty": "No transactions found",
     "drillDownClose": "Close",
     "accrualNote": "Credit-card transactions are grouped by bill due date (accrual mode).",

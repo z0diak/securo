@@ -860,6 +860,7 @@
     "drillDownSettledTotal": "Liquidado · total resumido",
     "drillDownPendingTotal": "Pendiente de liquidación",
     "drillDownShownTotal": "Total mostrado",
+    "drillDownShownNetTotal": "Total neto",
     "drillDownEmpty": "No se encontraron transacciones",
     "drillDownClose": "Cerrar",
     "accrualNote": "Las transacciones con tarjeta de crédito se agrupan por la fecha de vencimiento de la factura (modo acumulado).",
