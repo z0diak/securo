@@ -1986,6 +1986,7 @@
     "pickCustomRange": "Escolha uma data inicial e final",
     "loadError": "Falha ao carregar o relatório",
     "categorySpending": "Despesas por categoria",
+    "monthlyCategory": "Resumo Mensal",
     "budgetVariance": "Desvio orçamental",
     "averagePerMonth": "Média por mês",
     "standardDeviation": "Desvio-padrão",
@@ -2008,7 +2009,23 @@
     "clearCategory": "Remover {{category}}",
     "average": "Média",
     "drillDownCategory": "{{category}} — {{month}}",
-    "overBudget": "Acima do orçamento"
+    "overBudget": "Acima do orçamento",
+    "monthly": {
+      "net": "Saldo",
+      "monthToDate": "Mês até hoje",
+      "budget": "Orçamento",
+      "budgetOf": "orçamento {{amount}}",
+      "left": "{{amount}} restante",
+      "overBy": "{{amount}} acima",
+      "unbudgeted": "+{{amount}} sem orçamento",
+      "noBudgets": "Nenhum orçamento definido para este mês",
+      "noIncome": "Nenhuma receita neste mês",
+      "noExpenses": "Nenhuma despesa neste mês",
+      "noActivity": "Nenhuma transação em {{month}}",
+      "ungrouped": "Sem grupo",
+      "previousMonth": "Mês anterior",
+      "nextMonth": "Mês seguinte"
+    }
   },
   "payees": {
     "noPayeeFound": "Nenhuma entidade encontrada.",

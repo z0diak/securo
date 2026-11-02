@@ -14,6 +14,8 @@ interface MonthStepperProps {
   /** Accessible labels for the prev/next buttons. */
   prevLabel?: string
   nextLabel?: string
+  /** Latest selectable `"YYYY-MM"`; later months are disabled. */
+  maxMonth?: string
 }
 
 /**
@@ -21,7 +23,7 @@ interface MonthStepperProps {
  * given month and emits onChange. Wiring (URL/date-range/query) lives in the
  * parent so the stepper stays a single source of truth on top of existing filters.
  */
-export function MonthStepper({ value, onChange, locale = 'pt-BR', prevLabel, nextLabel }: MonthStepperProps) {
+export function MonthStepper({ value, onChange, locale = 'pt-BR', prevLabel, nextLabel, maxMonth }: MonthStepperProps) {
   const [open, setOpen] = useState(false)
   const label = monthLabel(value, locale).replace(/^\w/, (c) => c.toUpperCase())
   const [year, month] = value.split('-').map(Number)
@@ -57,6 +59,7 @@ export function MonthStepper({ value, onChange, locale = 'pt-BR', prevLabel, nex
           <MonthPicker
             locale={dateFnsLocale}
             selectedMonth={new Date(`${value}-01T00:00:00`)}
+            maxDate={maxMonth ? new Date(`${maxMonth}-01T00:00:00`) : undefined}
             onMonthSelect={(date) => {
               if (!date) return
               const newMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
@@ -69,7 +72,8 @@ export function MonthStepper({ value, onChange, locale = 'pt-BR', prevLabel, nex
       <button
         type="button"
         aria-label={nextLabel}
-        className="h-8 w-8 shrink-0 flex items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground transition-all text-base cursor-pointer"
+        disabled={maxMonth !== undefined && value >= maxMonth}
+        className="h-8 w-8 shrink-0 flex items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground transition-all text-base cursor-pointer disabled:opacity-40 disabled:pointer-events-none"
         onClick={() => onChange(shiftMonth(value, 1))}
       >
         &#8250;

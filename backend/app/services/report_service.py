@@ -32,6 +32,10 @@ from app.schemas.report import (
     CategorySpendingPeriodValue,
     CategorySpendingRow,
     CategoryTrendItem,
+    MonthlyCategoryGroup,
+    MonthlyCategoryReportResponse,
+    MonthlyCategoryRow,
+    MonthlyCategorySection,
     ReportBreakdown,
     ReportCompositionItem,
     ReportDataPoint,
@@ -1473,6 +1477,158 @@ async def get_category_spending_matrix(
             type=report_type,
             period=period,
         ),
+    )
+
+
+async def _uncategorized_income(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    start: date,
+    end: date,
+    accounting_mode: str,
+) -> float:
+    """Uncategorized credits, with the same visibility and dates as budgets."""
+    report_date = reporting_date_col(accounting_mode)
+    result = await session.execute(
+        select(func.sum(func.coalesce(Transaction.amount_primary, Transaction.amount)))
+        .where(
+            Transaction.workspace_id == workspace_id,
+            Transaction.category_id.is_(None),
+            Transaction.type == "credit",
+            Transaction.source != "opening_balance",
+            Transaction.status == "posted",
+            report_date >= start,
+            report_date < end,
+            report_date <= app_today(),
+            counts_as_user_pnl(),
+        )
+    )
+    return round(float(result.scalar() or 0), 2)
+
+
+def _build_monthly_section(rows: list[MonthlyCategoryRow]) -> MonthlyCategorySection:
+    groups: dict[str | None, list[MonthlyCategoryRow]] = {}
+    for row in rows:
+        groups.setdefault(row.group_id, []).append(row)
+
+    built: list[MonthlyCategoryGroup] = []
+    for group_id, group_rows in groups.items():
+        group_rows.sort(key=lambda r: r.actual_amount, reverse=True)
+        budgets = [r.budget_amount for r in group_rows if r.budget_amount is not None]
+        built.append(MonthlyCategoryGroup(
+            group_id=group_id,
+            group_name=group_rows[0].group_name,
+            actual_amount=round(sum(r.actual_amount for r in group_rows), 2),
+            budget_amount=round(sum(budgets), 2) if budgets else None,
+            rows=group_rows,
+        ))
+    # Ungrouped categories trail the named groups.
+    built.sort(key=lambda g: (g.group_id is None, -g.actual_amount))
+
+    budgets = [r.budget_amount for r in rows if r.budget_amount is not None]
+    budgeted_actual = sum(r.actual_amount for r in rows if r.budget_amount is not None)
+    total = sum(r.actual_amount for r in rows)
+    return MonthlyCategorySection(
+        total_amount=round(total, 2),
+        budget_amount=round(sum(budgets), 2) if budgets else None,
+        budgeted_actual_amount=round(budgeted_actual, 2),
+        unbudgeted_actual_amount=round(total - budgeted_actual, 2),
+        groups=built,
+    )
+
+
+async def get_monthly_category_report(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
+    month: date,
+    primary_currency: str,
+) -> MonthlyCategoryReportResponse:
+    """Per-category spend and income for one calendar month, against budgets.
+
+    Budgeted categories always land in expenses (net refunds read as negative
+    spend); others go to expenses or income by the sign of their net.
+    """
+    from app.services.budget_service import get_budget_vs_actual
+
+    today = app_today()
+    month_start = month.replace(day=1)
+    if month_start > today.replace(day=1):
+        raise ValueError("Monthly category report cannot be in the future")
+    month_end = _add_months(month_start, 1)
+
+    accounting_mode = await get_credit_card_accounting_mode(session)
+    transfer_category_ids = {
+        str(cid) for cid in (await session.execute(
+            select(Category.id).where(
+                Category.workspace_id == workspace_id,
+                Category.treat_as_transfer.is_(True),
+            )
+        )).scalars().all()
+    }
+
+    expense_rows: list[MonthlyCategoryRow] = []
+    income_rows: list[MonthlyCategoryRow] = []
+    comparisons = await get_budget_vs_actual(
+        session, workspace_id, user_id, month_start, signed=True,
+    )
+    for item in comparisons:
+        cat_id = str(item.category_id)
+        if cat_id in transfer_category_ids:
+            continue
+        net = round(float(item.actual_amount or 0), 2)
+        budget = (
+            round(float(item.budget_amount), 2)
+            if item.budget_amount is not None
+            else None
+        )
+        # Rows kept only for last month's spend or a projection carry no
+        # actual for this month.
+        if budget is None and abs(net) < 0.005:
+            continue
+        is_income = budget is None and net < 0
+        actual = -net if is_income else net
+        row = MonthlyCategoryRow(
+            category_id=cat_id,
+            category_name=item.category_name,
+            category_icon=item.category_icon,
+            category_color=item.category_color,
+            group_id=str(item.group_id) if item.group_id else None,
+            group_name=item.group_name,
+            actual_amount=actual,
+            budget_amount=budget,
+            variance_amount=round(actual - budget, 2) if budget is not None else None,
+        )
+        (income_rows if is_income else expense_rows).append(row)
+
+    uncategorized_spend = await _uncategorized_spending(
+        session, workspace_id, user_id, month_start, month_end,
+        primary_currency, accounting_mode,
+    )
+    uncategorized_income = await _uncategorized_income(
+        session, workspace_id, month_start, month_end, accounting_mode,
+    )
+    for amount, rows in ((uncategorized_spend, expense_rows), (uncategorized_income, income_rows)):
+        if amount > 0:
+            rows.append(MonthlyCategoryRow(
+                category_id="uncategorized",
+                category_name="Uncategorized",
+                category_icon="tag",
+                category_color="#6B7280",
+                actual_amount=amount,
+            ))
+
+    expenses = _build_monthly_section(expense_rows)
+    income = _build_monthly_section(income_rows)
+    return MonthlyCategoryReportResponse(
+        month=month_start.strftime("%Y-%m"),
+        start=month_start.isoformat(),
+        end=month_end.isoformat(),
+        currency=primary_currency,
+        is_current_month=month_start == today.replace(day=1),
+        expenses=expenses,
+        income=income,
+        net_amount=round(income.total_amount - expenses.total_amount, 2),
     )
 
 
