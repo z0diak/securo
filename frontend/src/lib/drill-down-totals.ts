@@ -36,10 +36,6 @@ export type DrillDownTotals = {
  * the figures turn into a net instead: credits count positive, debits
  * negative, and the buckets still add back up to `absTotal`.
  *
- * When the rows run in both directions a sum of magnitudes means nothing, so
- * the figures turn into a net instead: credits count positive, debits
- * negative, and the buckets still add back up to `absTotal`.
- *
  * Foreign-currency rows are converted through `amountPrimary`; when that is
  * missing the row is skipped rather than added as if its raw amount were
  * already in the user's currency. This matches how `get_summary` computes
