@@ -1985,6 +1985,7 @@
     "pickCustomRange": "開始日と終了日を選択",
     "loadError": "レポートの読み込みに失敗しました",
     "categorySpending": "カテゴリー別支出",
+    "monthlyCategory": "月次内訳",
     "budgetVariance": "予算との差額",
     "averagePerMonth": "月平均",
     "standardDeviation": "標準偏差",
@@ -2007,7 +2008,23 @@
     "clearCategory": "{{category}}を削除",
     "average": "平均",
     "drillDownCategory": "{{category}} — {{month}}",
-    "overBudget": "予算超過"
+    "overBudget": "予算超過",
+    "monthly": {
+      "net": "純額",
+      "monthToDate": "今月これまで",
+      "budget": "予算",
+      "budgetOf": "予算 {{amount}}",
+      "left": "残り {{amount}}",
+      "overBy": "{{amount}} 超過",
+      "unbudgeted": "+{{amount}} 予算外",
+      "noBudgets": "今月の予算はありません",
+      "noIncome": "今月の収入はありません",
+      "noExpenses": "今月の支出はありません",
+      "noActivity": "{{month}} の取引はありません",
+      "ungrouped": "グループなし",
+      "previousMonth": "前月",
+      "nextMonth": "翌月"
+    }
   },
   "payees": {
     "noPayeeFound": "取引相手が見つかりません。",

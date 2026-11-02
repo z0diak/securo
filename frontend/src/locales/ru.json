@@ -1998,6 +1998,7 @@
     "pickCustomRange": "Выберите дату начала и конца",
     "loadError": "Не удалось загрузить отчёт",
     "categorySpending": "Расходы по категориям",
+    "monthlyCategory": "Итоги месяца",
     "budgetVariance": "Отклонение от бюджета",
     "averagePerMonth": "В среднем за месяц",
     "standardDeviation": "Стандартное отклонение",
@@ -2020,7 +2021,23 @@
     "clearCategory": "Убрать {{category}}",
     "average": "Среднее",
     "drillDownCategory": "{{category}} — {{month}}",
-    "overBudget": "Сверх бюджета"
+    "overBudget": "Сверх бюджета",
+    "monthly": {
+      "net": "Итого",
+      "monthToDate": "С начала месяца",
+      "budget": "Бюджет",
+      "budgetOf": "бюджет {{amount}}",
+      "left": "осталось {{amount}}",
+      "overBy": "превышение {{amount}}",
+      "unbudgeted": "+{{amount}} вне бюджета",
+      "noBudgets": "Нет бюджетов на этот месяц",
+      "noIncome": "Нет доходов в этом месяце",
+      "noExpenses": "Нет расходов в этом месяце",
+      "noActivity": "Нет транзакций: {{month}}",
+      "ungrouped": "Без группы",
+      "previousMonth": "Предыдущий месяц",
+      "nextMonth": "Следующий месяц"
+    }
   },
   "payees": {
     "noPayeeFound": "Получатель не найден.",

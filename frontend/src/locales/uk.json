@@ -1998,6 +1998,7 @@
     "pickCustomRange": "Виберіть дату початку та кінця",
     "loadError": "Не вдалося завантажити звіт",
     "categorySpending": "Витрати за категоріями",
+    "monthlyCategory": "Підсумки місяця",
     "budgetVariance": "Відхилення від бюджету",
     "averagePerMonth": "У середньому за місяць",
     "standardDeviation": "Стандартне відхилення",
@@ -2020,7 +2021,23 @@
     "clearCategory": "Прибрати {{category}}",
     "average": "Середнє",
     "drillDownCategory": "{{category}} — {{month}}",
-    "overBudget": "Понад бюджет"
+    "overBudget": "Понад бюджет",
+    "monthly": {
+      "net": "Разом",
+      "monthToDate": "З початку місяця",
+      "budget": "Бюджет",
+      "budgetOf": "бюджет {{amount}}",
+      "left": "залишилось {{amount}}",
+      "overBy": "перевищення {{amount}}",
+      "unbudgeted": "+{{amount}} поза бюджетом",
+      "noBudgets": "Немає бюджетів на цей місяць",
+      "noIncome": "Немає доходів цього місяця",
+      "noExpenses": "Немає витрат цього місяця",
+      "noActivity": "Немає транзакцій: {{month}}",
+      "ungrouped": "Без групи",
+      "previousMonth": "Попередній місяць",
+      "nextMonth": "Наступний місяць"
+    }
   },
   "payees": {
     "noPayeeFound": "Отримувача не знайдено.",

@@ -95,6 +95,49 @@ class CategorySpendingMatrixResponse(BaseModel):
     meta: CategorySpendingMeta
 
 
+class MonthlyCategoryRow(BaseModel):
+    category_id: str
+    category_name: str
+    category_icon: str
+    category_color: str
+    group_id: str | None = None
+    group_name: str | None = None
+    # Spend for expense rows, earnings for income rows; positive is the
+    # section's natural direction (expense rows go negative on net refunds).
+    actual_amount: float
+    budget_amount: float | None = None
+    # Actual minus budget: positive is over budget.
+    variance_amount: float | None = None
+
+
+class MonthlyCategoryGroup(BaseModel):
+    group_id: str | None = None
+    group_name: str | None = None
+    actual_amount: float
+    budget_amount: float | None = None
+    rows: list[MonthlyCategoryRow]
+
+
+class MonthlyCategorySection(BaseModel):
+    total_amount: float
+    budget_amount: float | None = None
+    # Actual of budgeted categories only, so it compares 1:1 to the budget.
+    budgeted_actual_amount: float
+    unbudgeted_actual_amount: float
+    groups: list[MonthlyCategoryGroup]
+
+
+class MonthlyCategoryReportResponse(BaseModel):
+    month: str
+    start: str
+    end: str
+    currency: str
+    is_current_month: bool
+    expenses: MonthlyCategorySection
+    income: MonthlyCategorySection
+    net_amount: float
+
+
 class ReportResponse(BaseModel):
     summary: ReportSummary
     trend: list[ReportDataPoint]

@@ -2041,6 +2041,7 @@
     "pickCustomRange": "Επιλέξτε ημερομηνία έναρξης και λήξης",
     "loadError": "Αποτυχία φόρτωσης αναφοράς",
     "categorySpending": "Δαπάνες ανά κατηγορία",
+    "monthlyCategory": "Μηνιαία ανάλυση",
     "budgetVariance": "Απόκλιση προϋπολογισμού",
     "averagePerMonth": "Μέσος όρος / μήνα",
     "standardDeviation": "Τυπική απόκλιση",
@@ -2063,7 +2064,23 @@
     "clearCategory": "Αφαίρεση {{category}}",
     "average": "Μέσος όρος",
     "drillDownCategory": "{{category}} — {{month}}",
-    "overBudget": "Υπέρβαση προϋπολογισμού"
+    "overBudget": "Υπέρβαση προϋπολογισμού",
+    "monthly": {
+      "net": "Καθαρό",
+      "monthToDate": "Μήνας έως σήμερα",
+      "budget": "Προϋπολογισμός",
+      "budgetOf": "προϋπολογισμός {{amount}}",
+      "left": "απομένουν {{amount}}",
+      "overBy": "{{amount}} υπέρβαση",
+      "unbudgeted": "+{{amount}} εκτός προϋπολογισμού",
+      "noBudgets": "Δεν υπάρχουν προϋπολογισμοί για αυτόν τον μήνα",
+      "noIncome": "Κανένα έσοδο αυτόν τον μήνα",
+      "noExpenses": "Καμία δαπάνη αυτόν τον μήνα",
+      "noActivity": "Καμία συναλλαγή τον {{month}}",
+      "ungrouped": "Χωρίς ομάδα",
+      "previousMonth": "Προηγούμενος μήνας",
+      "nextMonth": "Επόμενος μήνας"
+    }
   },
   "fiscal": {
     "kind": {
