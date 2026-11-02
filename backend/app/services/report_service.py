@@ -20,11 +20,17 @@ from app.services._query_filters import (
     counts_as_user_pnl,
     owner_split_offset_by_category,
     reporting_date_col,
+    viewer_shared_spending_by_category,
 )
 from app.services.admin_service import get_credit_card_accounting_mode
 from app.services.account_service import get_account_name
 from app.services.fx_rate_service import convert
 from app.schemas.report import (
+    CategorySpendingMatrixResponse,
+    CategorySpendingMeta,
+    CategorySpendingPeriod,
+    CategorySpendingPeriodValue,
+    CategorySpendingRow,
     CategoryTrendItem,
     ReportBreakdown,
     ReportCompositionItem,
@@ -247,6 +253,22 @@ def _format_date_label(d: date, interval: str) -> str:
     elif interval == "yearly":
         return str(d.year)
     return d.isoformat()
+
+
+def _month_periods(today: date, months: int, period: str | None = None) -> list[tuple[str, date, date]]:
+    """Monthly periods, newest first."""
+    current = date(today.year, today.month, 1)
+    if period == "ytd":
+        count = today.month
+    else:
+        count = months
+
+    periods: list[tuple[str, date, date]] = []
+    for idx in range(count):
+        start = _add_months(current, -idx)
+        end = _add_months(start, 1)
+        periods.append((_format_date_label(start, "monthly"), start, end))
+    return periods
 
 
 def _date_points(
@@ -1186,6 +1208,271 @@ async def get_income_expenses_report(
     return ReportResponse(
         summary=summary, trend=trend, meta=meta,
         composition=composition, category_trend=category_trend,
+    )
+
+
+async def _uncategorized_spending(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
+    start: date,
+    end: date,
+    primary_currency: str,
+    accounting_mode: str,
+) -> float:
+    """Uncategorized expenses, with the same visibility and dates as budgets."""
+    report_date = reporting_date_col(accounting_mode)
+    # Uncategorized credits may be income, so do not offset unrelated expenses.
+    result = await session.execute(
+        select(func.sum(func.coalesce(Transaction.amount_primary, Transaction.amount)))
+        .where(
+            Transaction.workspace_id == workspace_id,
+            Transaction.category_id.is_(None),
+            Transaction.type == "debit",
+            Transaction.source != "opening_balance",
+            Transaction.status == "posted",
+            report_date >= start,
+            report_date < end,
+            report_date <= app_today(),
+            counts_as_user_pnl(),
+        )
+    )
+    actual = Decimal(str(result.scalar() or 0))
+    own_offsets = await owner_split_offset_by_category(
+        session, user_id, start, end,
+        use_effective_date=accounting_mode == "accrual",
+        primary_currency=primary_currency,
+        workspace_id=workspace_id,
+    )
+    shared = await viewer_shared_spending_by_category(
+        session, user_id, start, end,
+        use_effective_date=accounting_mode == "accrual",
+        primary_currency=primary_currency,
+    )
+    actual -= Decimal(str(own_offsets.get(None, 0)))
+    actual += Decimal(str(shared.get(None, 0)))
+    return round(float(max(actual, Decimal("0"))), 2)
+
+
+async def _income_only_category_ids(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    start: date,
+    end: date,
+    accounting_mode: str,
+    category_ids: list[str],
+) -> set[str]:
+    """Categories with credits but no debits in range: income, not spending."""
+    if not category_ids:
+        return set()
+    report_date = reporting_date_col(accounting_mode)
+    result = await session.execute(
+        select(
+            Transaction.category_id,
+            func.count().filter(Transaction.type == "debit"),
+            func.count().filter(Transaction.type == "credit"),
+        )
+        .where(
+            Transaction.workspace_id == workspace_id,
+            Transaction.category_id.in_([uuid.UUID(cid) for cid in category_ids]),
+            Transaction.source != "opening_balance",
+            Transaction.status == "posted",
+            report_date >= start,
+            report_date < end,
+            report_date <= app_today(),
+            counts_as_user_pnl(),
+        )
+        .group_by(Transaction.category_id)
+    )
+    return {str(cat_id) for cat_id, debits, credits in result.all() if debits == 0 and credits > 0}
+
+
+async def get_category_spending_matrix(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
+    months: int = 12,
+    interval: str = "monthly",
+    currency: str = "USD",
+    period: str | None = None,
+    report_type: str = "expenses",
+) -> CategorySpendingMatrixResponse:
+    """Build monthly category spending matrix with budget variance.
+
+    Monthly actuals are net of credits and may be negative (income above spend).
+    """
+    if interval != "monthly":
+        raise ValueError("Category spending report supports monthly interval only")
+    if report_type != "expenses":
+        raise ValueError("Category spending report supports expenses only")
+
+    from app.services.budget_service import get_budget_vs_actual
+
+    today = app_today()
+    user = await session.get(User, user_id)
+    primary_currency = user.primary_currency if user else currency or get_settings().default_currency
+    raw_periods = _month_periods(today, months, period)
+
+    periods = [
+        CategorySpendingPeriod(
+            key=key,
+            label=f"{calendar.month_name[start.month]} {start.year}",
+            start=start.isoformat(),
+            end=end.isoformat(),
+        )
+        for key, start, end in raw_periods
+    ]
+
+    rows_by_category: dict[str, dict] = {}
+    accounting_mode = await get_credit_card_accounting_mode(session)
+    uncategorized_periods = {}
+    # Transfer-like categories are flows, not spending.
+    transfer_category_ids = {
+        str(cid) for cid in (await session.execute(
+            select(Category.id).where(
+                Category.workspace_id == workspace_id,
+                Category.treat_as_transfer.is_(True),
+            )
+        )).scalars().all()
+    }
+
+    for period_info in periods:
+        month_start = date.fromisoformat(period_info.start)
+        uncategorized_periods[period_info.key] = CategorySpendingPeriodValue(
+            actual_amount=await _uncategorized_spending(
+                session, workspace_id, user_id, month_start,
+                date.fromisoformat(period_info.end), primary_currency, accounting_mode,
+            ),
+            status="no_budget",
+        )
+        comparisons = await get_budget_vs_actual(
+            session, workspace_id, user_id, month_start, signed=True,
+        )
+        for item in comparisons:
+            cat_id = str(item.category_id)
+            if cat_id in transfer_category_ids:
+                continue
+            actual = round(float(item.actual_amount or 0), 2)
+            budget = (
+                round(float(item.budget_amount), 2)
+                if item.budget_amount is not None
+                else None
+            )
+            variance = round(actual - budget, 2) if budget is not None else None
+            variance_percent = (
+                round((variance / budget) * 100, 1)
+                if budget and variance is not None
+                else None
+            )
+            if budget is None:
+                status = "no_budget"
+            elif variance is None or abs(variance) < 0.005:
+                status = "on_budget"
+            elif variance > 0:
+                status = "over"
+            else:
+                status = "under"
+
+            if cat_id not in rows_by_category:
+                rows_by_category[cat_id] = {
+                    "category_id": cat_id,
+                    "category_name": item.category_name,
+                    "category_icon": item.category_icon,
+                    "category_color": item.category_color,
+                    "group_id": str(item.group_id) if item.group_id else None,
+                    "group_name": item.group_name,
+                    "periods": {},
+                }
+
+            rows_by_category[cat_id]["periods"][period_info.key] = CategorySpendingPeriodValue(
+                actual_amount=actual,
+                budget_amount=budget,
+                variance_amount=variance,
+                variance_percent=variance_percent,
+                percentage_used=item.percentage_used,
+                status=status,
+                is_recurring_budget=item.is_recurring,
+            )
+
+    if any(value.actual_amount > 0 for value in uncategorized_periods.values()):
+        rows_by_category["uncategorized"] = {
+            "category_id": "uncategorized",
+            "category_name": "Uncategorized",
+            "category_icon": "tag",
+            "category_color": "#6B7280",
+            "group_id": None,
+            "group_name": None,
+            "periods": uncategorized_periods,
+        }
+
+    # Credits net against spend (months may go negative), but a category that
+    # only ever received credits is income; a budget or projection must not
+    # surface it as a card.
+    period_keys = [p.key for p in periods]
+    no_spend_ids = [
+        cat_id for cat_id, raw in rows_by_category.items()
+        if cat_id != "uncategorized"
+        and not any(v.actual_amount > 0 for v in raw["periods"].values())
+    ]
+    if no_spend_ids and periods:
+        income_only = await _income_only_category_ids(
+            session, workspace_id,
+            min(date.fromisoformat(p.start) for p in periods),
+            max(date.fromisoformat(p.end) for p in periods),
+            accounting_mode, no_spend_ids,
+        )
+        for cat_id in income_only:
+            del rows_by_category[cat_id]
+
+    rows: list[CategorySpendingRow] = []
+    for raw in rows_by_category.values():
+        values = [
+            raw["periods"].get(
+                key,
+                CategorySpendingPeriodValue(actual_amount=0, status="no_budget"),
+            )
+            for key in period_keys
+        ]
+        total = round(sum(value.actual_amount for value in values), 2)
+        average = round(total / len(period_keys), 2) if period_keys else 0.0
+        latest = values[0].actual_amount if values else 0.0
+        oldest = values[-1].actual_amount if values else 0.0
+        # Months where credits beat spend count as zero spend so the trend sign
+        # and percentage keep their meaning.
+        trend_latest, trend_oldest = max(latest, 0.0), max(oldest, 0.0)
+        trend_amount = round(trend_latest - trend_oldest, 2)
+        trend_percent = (
+            round((trend_amount / trend_oldest) * 100, 1)
+            if trend_oldest != 0
+            else None
+        )
+
+        rows.append(CategorySpendingRow(
+            category_id=raw["category_id"],
+            category_name=raw["category_name"],
+            category_icon=raw["category_icon"],
+            category_color=raw["category_color"],
+            group_id=raw["group_id"],
+            group_name=raw["group_name"],
+            total_amount=total,
+            average_amount=average,
+            latest_amount=latest,
+            trend_amount=trend_amount,
+            trend_percent=trend_percent,
+            periods=raw["periods"],
+        ))
+
+    rows.sort(key=lambda row: row.latest_amount, reverse=True)
+
+    return CategorySpendingMatrixResponse(
+        periods=periods,
+        rows=rows,
+        meta=CategorySpendingMeta(
+            currency=primary_currency,
+            interval=interval,
+            type=report_type,
+            period=period,
+        ),
     )
 
 

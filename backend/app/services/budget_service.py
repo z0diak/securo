@@ -228,7 +228,14 @@ async def get_budget_vs_actual(
     workspace_id: uuid.UUID,
     user_id: uuid.UUID,
     month: Optional[date] = None,
+    signed: bool = False,
 ) -> list[BudgetVsActual]:
+    """Budget vs actual per category.
+
+    By default net spend is clamped at zero (credits above debits read as no
+    spend). With ``signed=True`` the net may be negative, so callers can show
+    how much income exceeded spend in a category.
+    """
     if not month:
         month = app_today().replace(day=1)
 
@@ -293,7 +300,7 @@ async def get_budget_vs_actual(
     spending_map: dict[str, Decimal] = {}
     for row in spending_result.all():
         net = row[1] or Decimal("0")
-        if net > 0:
+        if signed or net > 0:
             spending_map[str(row[0])] = net
 
     # Subtract non-owner shares of own splits — only the user's share counts.
@@ -309,7 +316,7 @@ async def get_budget_vs_actual(
         cat_id = str(cat_uuid)
         if cat_id in spending_map:
             spending_map[cat_id] -= Decimal(str(total))
-            if spending_map[cat_id] <= 0:
+            if not signed and spending_map[cat_id] <= 0:
                 spending_map.pop(cat_id)
 
     # Layer in the user's share from group splits — concert tickets

@@ -12,9 +12,14 @@ from app.models.account import Account
 from app.models.asset import Asset
 from app.models.asset_value import AssetValue
 from app.models.bank_connection import BankConnection
+from app.models.budget import Budget
+from app.models.category import Category
 from app.models.transaction import Transaction
 from app.models.user import User
+from app.models.workspace import Workspace
 from app.schemas.report import (
+    CategorySpendingMatrixResponse,
+    CategorySpendingMeta,
     CategoryTrendItem,
     ReportDataPoint,
     ReportMeta,
@@ -34,6 +39,7 @@ from app.services.report_service import (
     _format_date_label,
     _net_worth_at,
     _report_start_date,
+    get_category_spending_matrix,
     get_cash_flow_report,
     get_net_worth_report,
 )
@@ -410,6 +416,323 @@ async def test_net_worth_report_custom_range_pins_window(
     assert report.trend[-1].date == _format_date_label(end, interval)
 
 
+@pytest.mark.asyncio
+async def test_category_spending_matrix_returns_newest_periods_and_variance(
+    session: AsyncSession, test_user, test_workspace
+):
+    account = await _create_manual_account(session, test_user.id, "Category Matrix")
+    category = Category(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        name="Groceries",
+        icon="ShoppingCart",
+        color="#10B981",
+    )
+    session.add(category)
+
+    current_month = date.today().replace(day=1)
+    previous_month = _add_months(current_month, -1)
+    session.add_all([
+        Budget(
+            id=uuid.uuid4(),
+            user_id=test_user.id,
+            workspace_id=test_workspace.id,
+            category_id=category.id,
+            amount=Decimal("200.00"),
+            month=current_month,
+            is_recurring=False,
+        ),
+        Budget(
+            id=uuid.uuid4(),
+            user_id=test_user.id,
+            workspace_id=test_workspace.id,
+            category_id=category.id,
+            amount=Decimal("70.00"),
+            month=previous_month,
+            is_recurring=False,
+        ),
+        Transaction(
+            id=uuid.uuid4(),
+            user_id=test_user.id,
+            workspace_id=test_workspace.id,
+            account_id=account.id,
+            category_id=category.id,
+            description="Current groceries",
+            amount=Decimal("150.00"),
+            currency="BRL",
+            date=current_month,
+            type="debit",
+            source="manual",
+            created_at=datetime.now(timezone.utc),
+        ),
+        Transaction(
+            id=uuid.uuid4(),
+            user_id=test_user.id,
+            workspace_id=test_workspace.id,
+            account_id=account.id,
+            category_id=category.id,
+            description="Previous groceries",
+            amount=Decimal("90.00"),
+            currency="BRL",
+            date=previous_month,
+            type="debit",
+            source="manual",
+            created_at=datetime.now(timezone.utc),
+        ),
+    ])
+    await session.commit()
+
+    report = await get_category_spending_matrix(
+        session, test_workspace.id, test_user.id, months=2
+    )
+
+    assert [period.key for period in report.periods] == [
+        f"{current_month.year}-{current_month.month:02d}",
+        f"{previous_month.year}-{previous_month.month:02d}",
+    ]
+    row = report.rows[0]
+    assert row.category_name == "Groceries"
+    assert row.total_amount == 240
+    assert row.average_amount == 120
+    current = row.periods[report.periods[0].key]
+    previous = row.periods[report.periods[1].key]
+    assert current.actual_amount == 150
+    assert current.budget_amount == 200
+    assert current.variance_amount == -50
+    assert current.status == "under"
+    assert previous.actual_amount == 90
+    assert previous.budget_amount == 70
+    assert previous.variance_amount == 20
+    assert previous.status == "over"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_category", [False, True])
+async def test_category_spending_includes_uncategorized(
+    session, test_user, test_workspace, monkeypatch, with_category,
+):
+    monkeypatch.setattr(report_service, "app_today", lambda: date(2025, 6, 15))
+    account = await _create_manual_account(session, test_user.id, "Uncategorized report")
+    other_workspace = Workspace(id=uuid.uuid4(), name="Other workspace")
+    session.add(other_workspace)
+    await session.flush()
+    category = Category(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        name="Groceries", icon="tag", color="#10B981",
+    )
+    if with_category:
+        session.add(category)
+
+    def transaction(amount, tx_date, **overrides):
+        fields = dict(
+            id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+            account_id=account.id, description="Report expense",
+            amount=Decimal(amount), currency="BRL", date=tx_date,
+            type="debit", source="manual", status="posted",
+            created_at=datetime.now(timezone.utc),
+        )
+        fields.update(overrides)
+        return Transaction(**fields)
+
+    session.add_all([
+        transaction("100", date(2025, 6, 1)),
+        transaction("20", date(2025, 6, 2), amount_primary=Decimal("30")),
+        transaction("50", date(2025, 5, 1)),
+        transaction("900", date(2025, 6, 1), type="credit"),
+        transaction("900", date(2025, 6, 1), status="pending"),
+        transaction("900", date(2025, 6, 16)),
+        transaction("900", date(2025, 3, 1)),
+        transaction("900", date(2025, 6, 1), is_ignored=True),
+        transaction("900", date(2025, 6, 1), exclude_from_pnl=True),
+        transaction("900", date(2025, 6, 1), transfer_pair_id=uuid.uuid4()),
+        transaction("900", date(2025, 6, 1), workspace_id=other_workspace.id),
+        transaction("900", date(2025, 6, 1), source="opening_balance"),
+        transaction("900", date(2025, 6, 1), effective_bill_date=date(2025, 7, 1)),
+        transaction("10", date(2025, 3, 1), effective_bill_date=date(2025, 5, 1)),
+    ])
+    if with_category:
+        session.add(transaction("70", date(2025, 6, 1), category_id=category.id))
+    await session.commit()
+
+    report = await get_category_spending_matrix(
+        session, test_workspace.id, test_user.id, months=3,
+    )
+    rows = {row.category_id: row for row in report.rows}
+    assert len(rows) == (2 if with_category else 1)
+    row = rows["uncategorized"]
+    assert row.category_name == "Uncategorized"
+    assert row.total_amount == 190
+    assert row.average_amount == 63.33
+    assert row.latest_amount == 130
+    assert row.trend_amount == 130
+    assert row.periods["2025-06"].actual_amount == 130
+    assert row.periods["2025-05"].actual_amount == 60
+    assert row.periods["2025-04"].actual_amount == 0
+    assert all(value.budget_amount is None and value.status == "no_budget"
+               for value in row.periods.values())
+    if with_category:
+        assert rows[str(category.id)].total_amount == 70
+
+
+@pytest.mark.asyncio
+async def test_category_spending_excludes_transfer_categories(
+    session, test_user, test_workspace,
+):
+    account = await _create_manual_account(session, test_user.id, "Transfer matrix")
+    current_month = date.today().replace(day=1)
+    spend = Category(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        name="Groceries", icon="tag", color="#10B981",
+    )
+    transfer = Category(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        name="Self transfer", icon="tag", color="#64748B", treat_as_transfer=True,
+    )
+    session.add_all([spend, transfer])
+    session.add(Budget(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        category_id=transfer.id, amount=Decimal("500.00"),
+        month=current_month, is_recurring=False,
+    ))
+    for category in (spend, transfer):
+        session.add(Transaction(
+            id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+            account_id=account.id, category_id=category.id,
+            description="Expense", amount=Decimal("40.00"), currency="BRL",
+            date=current_month, type="debit", source="manual", status="posted",
+            created_at=datetime.now(timezone.utc),
+        ))
+    await session.commit()
+
+    report = await get_category_spending_matrix(
+        session, test_workspace.id, test_user.id, months=2,
+    )
+    ids = {row.category_id for row in report.rows}
+    assert str(transfer.id) not in ids
+    assert str(spend.id) in ids
+
+
+@pytest.mark.asyncio
+async def test_category_spending_drops_income_only_but_nets_refunds(
+    session, test_user, test_workspace,
+):
+    account = await _create_manual_account(session, test_user.id, "Income matrix")
+    current_month = date.today().replace(day=1)
+    previous_month = (current_month - timedelta(days=1)).replace(day=1)
+
+    def category(name):
+        return Category(
+            id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+            name=name, icon="tag", color="#10B981",
+        )
+
+    car, salary, mixed, unspent = category("Car"), category("Salary"), category("Mixed"), category("Unspent")
+    session.add_all([car, salary, mixed, unspent])
+    for cat in (salary, unspent):
+        session.add(Budget(
+            id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+            category_id=cat.id, amount=Decimal("500.00"),
+            month=current_month, is_recurring=False,
+        ))
+
+    def tx(cat, amount, tx_date, tx_type):
+        return Transaction(
+            id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+            account_id=account.id, category_id=cat.id, description="Row",
+            amount=Decimal(amount), currency="BRL", date=tx_date,
+            type=tx_type, source="manual", status="posted",
+            created_at=datetime.now(timezone.utc),
+        )
+
+    session.add_all([
+        tx(car, "100", current_month, "debit"),
+        tx(salary, "3000", current_month, "credit"),
+        tx(salary, "3000", previous_month, "credit"),
+        # Refund nets spend in one month; income wins (clamped to 0) in the other.
+        tx(mixed, "100", current_month, "debit"),
+        tx(mixed, "30", current_month, "credit"),
+        tx(mixed, "50", previous_month, "debit"),
+        tx(mixed, "80", previous_month, "credit"),
+    ])
+    await session.commit()
+
+    report = await get_category_spending_matrix(
+        session, test_workspace.id, test_user.id, months=2,
+    )
+    rows = {row.category_id: row for row in report.rows}
+    assert str(salary.id) not in rows
+    assert str(car.id) in rows
+    # Budgeted category with no transactions at all is still reported.
+    assert str(unspent.id) in rows
+    mixed_row = rows[str(mixed.id)]
+    assert mixed_row.periods[current_month.strftime("%Y-%m")].actual_amount == 70
+    # Income above spend stays negative; total is true net spend.
+    assert mixed_row.periods[previous_month.strftime("%Y-%m")].actual_amount == -30
+    assert mixed_row.total_amount == 40
+    # Trend treats the net-income month as zero spend: no sign flip.
+    assert mixed_row.trend_amount == 70
+    assert mixed_row.trend_percent is None
+
+
+@pytest.mark.asyncio
+async def test_category_spending_net_income_month_counts_as_budget_met(
+    session, test_user, test_workspace,
+):
+    account = await _create_manual_account(session, test_user.id, "Budget net")
+    current_month = date.today().replace(day=1)
+    category = Category(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        name="Rental", icon="tag", color="#10B981",
+    )
+    session.add(category)
+    session.add(Budget(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        category_id=category.id, amount=Decimal("1000.00"),
+        month=current_month, is_recurring=False,
+    ))
+    for amount, tx_type in (("2000", "debit"), ("4500", "credit")):
+        session.add(Transaction(
+            id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+            account_id=account.id, category_id=category.id, description="Row",
+            amount=Decimal(amount), currency="BRL", date=current_month,
+            type=tx_type, source="manual", status="posted",
+            created_at=datetime.now(timezone.utc),
+        ))
+    await session.commit()
+
+    report = await get_category_spending_matrix(
+        session, test_workspace.id, test_user.id, months=1,
+    )
+    value = report.rows[0].periods[current_month.strftime("%Y-%m")]
+    assert value.actual_amount == -2500
+    assert value.budget_amount == 1000
+    # 3500 of the budget is left to spend.
+    assert value.variance_amount == -3500
+    assert value.status == "under"
+
+
+@pytest.mark.asyncio
+async def test_category_spending_empty_has_no_uncategorized_bucket(
+    session, test_user, test_workspace,
+):
+    report = await get_category_spending_matrix(
+        session, test_workspace.id, test_user.id, months=2,
+    )
+    assert report.rows == []
+
+
+@pytest.mark.asyncio
+async def test_category_spending_matrix_ytd_periods(session: AsyncSession, test_user, test_workspace):
+    report = await get_category_spending_matrix(
+        session, test_workspace.id, test_user.id, months=24, period="ytd"
+    )
+
+    assert report.periods[0].key == f"{date.today().year}-{date.today().month:02d}"
+    assert report.periods[-1].key == f"{date.today().year}-01"
+    assert len(report.periods) == date.today().month
+
+
 # ---------------------------------------------------------------------------
 # API-level tests: /reports/net-worth
 # ---------------------------------------------------------------------------
@@ -555,6 +878,56 @@ async def test_income_expenses_api_accepts_ytd_period(client, auth_headers, monk
         headers=auth_headers,
     )
     assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_category_spending_api_accepts_ytd_period(client, auth_headers, monkeypatch):
+    """GET /reports/category-spending passes period=ytd to service."""
+
+    async def fake_report(
+        session, workspace_id, user_id, months, interval, currency, period=None, report_type="expenses"
+    ):
+        assert months == 12
+        assert interval == "monthly"
+        assert period == "ytd"
+        assert report_type == "expenses"
+        return CategorySpendingMatrixResponse(
+            periods=[],
+            rows=[],
+            meta=CategorySpendingMeta(
+                currency=currency,
+                interval=interval,
+                type=report_type,
+                period=period,
+            ),
+        )
+
+    monkeypatch.setattr(report_service, "get_category_spending_matrix", fake_report)
+
+    resp = await client.get(
+        "/api/reports/category-spending",
+        params={"period": "ytd", "interval": "monthly", "type": "expenses"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["meta"]["period"] == "ytd"
+
+
+@pytest.mark.asyncio
+async def test_category_spending_api_validation(client, auth_headers):
+    resp = await client.get(
+        "/api/reports/category-spending",
+        params={"interval": "weekly"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 422
+
+    resp = await client.get(
+        "/api/reports/category-spending",
+        params={"type": "income"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
@@ -2736,3 +3109,14 @@ async def test_custom_dates_override_indian_yearly_ytd(
         assert service.call_args.kwargs['financial_year_start_month'] == 4
     finally:
         app.dependency_overrides.pop(current_workspace, None)
+
+
+@pytest.mark.asyncio
+async def test_category_spending_uses_workspace_date(session, test_user, test_workspace, monkeypatch):
+    monkeypatch.setattr(report_service, "app_today", lambda: date(2025, 12, 31))
+    report = await report_service.get_category_spending_matrix(
+        session, test_workspace.id, test_user.id, period="ytd",
+    )
+    assert report.periods[0].key == "2025-12"
+    assert report.periods[-1].key == "2025-01"
+    assert len(report.periods) == 12

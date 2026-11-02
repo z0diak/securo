@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useDisplayLocale } from '@/hooks/use-display-locale'
+import { useDateLocale, useDisplayLocale } from '@/hooks/use-display-locale'
 import { useQuery } from '@tanstack/react-query'
 import {
   AreaChart,
@@ -26,10 +26,13 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover
 import { DateRangePicker } from '@/components/ui/date-range-picker'
 import { PageHeader } from '@/components/page-header'
 import { CashflowSankey } from '@/components/reports/CashflowSankey'
+import { CategorySpendingSmallMultiples } from '@/components/reports/CategorySpendingSmallMultiples'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 import { useCollectionFilter } from '@/contexts/collection-filter-context'
-import type { ReportResponse, CategoryTrendItem } from '@/types'
+import { TransactionDrillDown, type DrillDownFilter } from '@/components/transaction-drill-down'
+import { TransactionEditHost } from '@/components/transaction-edit-host'
+import type { CategorySpendingMatrixResponse, CategoryTrendItem, ReportResponse, Transaction } from '@/types'
 import { formatCurrency } from '@/lib/format'
 import { localDateString } from '@/lib/date-utils'
 
@@ -60,6 +63,24 @@ function formatCompact(value: number, currency = 'USD', locale = 'en-US') {
     notation: 'compact',
     maximumFractionDigits: 1,
   }).format(value)
+}
+
+function formatWholeCurrency(value: number, currency = 'USD', locale = 'en-US') {
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(value)
+  } catch {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(value)
+  }
 }
 
 
@@ -145,7 +166,7 @@ interface ReportTab {
   enabled: boolean
   rangeOptions: readonly RangeOption[]
   intervalOptions: readonly { key: string; value: string }[]
-  /** Cash flow is a forward-only forecast, so it's the only tab that can't offer a past-only calendar range. */
+  /** Whether this report supports arbitrary historical start/end dates. */
   supportsCustomRange: boolean
   /** Preset selected when switching to this tab drops the current preset, or when Reset+Apply clears a custom range on it. */
   fallbackRangeKey: string
@@ -162,6 +183,11 @@ const REPORT_TABS: ReportTab[] = [
     key: 'income_expenses', labelKey: 'reports.incomeExpenses', enabled: true,
     rangeOptions: HISTORICAL_RANGE_OPTIONS, intervalOptions: HISTORICAL_INTERVAL_OPTIONS,
     supportsCustomRange: true, fallbackRangeKey: '1y', fallbackInterval: 'monthly',
+  },
+  {
+    key: 'category_spending', labelKey: 'reports.categorySpending', enabled: true,
+    rangeOptions: HISTORICAL_RANGE_OPTIONS, intervalOptions: [{ key: 'monthly', value: 'monthly' }],
+    supportsCustomRange: false, fallbackRangeKey: '1y', fallbackInterval: 'monthly',
   },
   {
     key: 'cash_flow', labelKey: 'reports.cashFlow', enabled: true,
@@ -181,6 +207,7 @@ export default function ReportsPage() {
   const { user } = useAuth()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const locale = useDisplayLocale()
+  const dateLocale = useDateLocale()
 
   const customDefaults = defaultCustomRange()
   const [rangeKey, setRangeKey] = useState('1y')
@@ -196,6 +223,9 @@ export default function ReportsPage() {
   const [sparklineView, setSparklineView] = useState<'byExpenses' | 'byIncome'>('byExpenses')
   const [sparklinePage, setSparklinePage] = useState(0)
   const [cashFlowBaseline, setCashFlowBaseline] = useState(false)
+  const [showVariance, setShowVariance] = useState(true)
+  const [drillDown, setDrillDown] = useState<DrillDownFilter | null>(null)
+  const [editingTx, setEditingTx] = useState<Transaction | null>(null)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   // Active Collection filter (issue #105): scope all report tabs to its
   // accounts; net worth also includes the collection's wallets' assets.
@@ -210,6 +240,7 @@ export default function ReportsPage() {
   const currentTab = REPORT_TABS.find((tab) => tab.key === activeTab) ?? REPORT_TABS[0]
 
   const isCashFlow = activeTab === 'cash_flow'
+  const isCategorySpending = activeTab === 'category_spending'
   // The Money Map (Sankey) tab is driven by the same income/expenses
   // composition, aggregated over the selected historical range.
   const isMoneyMap = activeTab === 'money_map'
@@ -271,8 +302,15 @@ export default function ReportsPage() {
           ? reports.incomeExpenses(months, interval, acctIds, period, days, apiStart, apiEnd)
           : reports.netWorth(months, interval, acctIds, walletIds, period, apiStart, apiEnd),
     // Only request a custom report with both committed endpoints.
-    enabled: currentTab.enabled && !(noAccounts && activeTab !== 'net_worth') && (!isCustomRange || hasCustomRange),
+    enabled: currentTab.enabled && !isCategorySpending && !(noAccounts && activeTab !== 'net_worth') && (!isCustomRange || hasCustomRange),
   })
+
+  const { data: categoryData, isLoading: categoryLoading, isError: categoryError, error: categoryQueryError, refetch: refetchCategory } = useQuery<CategorySpendingMatrixResponse>({
+    queryKey: ['reports', 'category-spending', rangeKey, months, period ?? null],
+    queryFn: () => reports.categorySpending(months, 'monthly', period),
+    enabled: isCategorySpending && !noAccounts,
+  })
+  const reportError = isCategorySpending ? categoryError : isError
 
   const summary = data?.summary
   const trend = data?.trend ?? []
@@ -648,17 +686,17 @@ export default function ReportsPage() {
         ))}
       </div>
 
-      {isError && (
+      {reportError && (
         <div className="flex items-center justify-between gap-3 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 rounded-lg px-4 py-2.5 mb-5">
           <div className="flex items-center gap-2.5 min-w-0">
             <AlertCircle size={16} className="shrink-0 text-rose-600 dark:text-rose-400" />
             <span className="text-sm text-rose-900 dark:text-rose-200 truncate">
-              {extractApiError(error, t('reports.loadError'))}
+              {extractApiError(isCategorySpending ? categoryQueryError : error, t('reports.loadError'))}
             </span>
           </div>
           <button
             type="button"
-            onClick={() => refetch()}
+            onClick={() => isCategorySpending ? refetchCategory() : refetch()}
             className="shrink-0 text-sm font-semibold text-rose-600 dark:text-rose-400 hover:underline"
           >
             {t('common.retry')}
@@ -666,7 +704,20 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {!isError && (
+      {!reportError && (isCategorySpending ? (
+        <CategorySpendingSmallMultiples
+          data={categoryData}
+          isLoading={categoryLoading}
+          showVariance={showVariance}
+          onShowVarianceChange={setShowVariance}
+          onDrillDown={setDrillDown}
+          formatCurrency={(value, currency = userCurrency) => formatCurrency(value, currency, locale)}
+          formatMetricCurrency={(value, currency = userCurrency) => formatWholeCurrency(value, currency, locale)}
+          mask={mask}
+          locale={dateLocale}
+          t={t}
+        />
+      ) : (
       <>
       {/* Hero Card */}
       <div className="bg-card rounded-xl border border-border shadow-sm mb-5">
@@ -1567,7 +1618,15 @@ export default function ReportsPage() {
       </>
       )}
       </>
+      ))}
+      {drillDown && (
+        <TransactionDrillDown
+          filter={drillDown}
+          onClose={() => setDrillDown(null)}
+          onTransactionClick={setEditingTx}
+        />
       )}
+      <TransactionEditHost transaction={editingTx} onClose={() => setEditingTx(null)} />
     </div>
   )
 }

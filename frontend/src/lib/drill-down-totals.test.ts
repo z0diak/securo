@@ -66,6 +66,7 @@ describe('sumDrillDownTotals', () => {
       postedTotal: 0,
       pendingTotal: 0,
       projectedTotal: 0,
+      isNet: false,
     })
   })
 
@@ -82,6 +83,37 @@ describe('sumDrillDownTotals', () => {
       postedTotal: 0,
       pendingTotal: 0,
       projectedTotal: 0,
+      isNet: false,
     })
+  })
+
+  it('nets credits against debits when the rows run in both directions', () => {
+    const totals = sumDrillDownTotals([
+      row({ type: 'credit', amount: 300 }),
+      row({ type: 'debit', amount: 100, isPending: true }),
+      row({ type: 'debit', amount: 50, isProjected: true }),
+    ], 'USD')
+
+    expect(totals).toEqual({
+      absTotal: 150,
+      postedTotal: 300,
+      pendingTotal: -100,
+      projectedTotal: -50,
+      isNet: true,
+    })
+  })
+
+  it('nets foreign rows through their primary amount', () => {
+    expect(sumDrillDownTotals([
+      row({ type: 'credit', amount: 1000, amountPrimary: 200, currency: 'BRL' }),
+      row({ type: 'debit', amount: 50 }),
+    ], 'USD')).toMatchObject({ absTotal: 150, isNet: true })
+  })
+
+  it('keeps summing magnitudes when every row goes the same way', () => {
+    expect(sumDrillDownTotals([
+      row({ type: 'debit', amount: 40 }),
+      row({ type: 'debit', amount: 60 }),
+    ], 'USD')).toMatchObject({ absTotal: 100, isNet: false })
   })
 })
