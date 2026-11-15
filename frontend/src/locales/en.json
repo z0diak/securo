@@ -1333,6 +1333,7 @@
     "darkMode": "Dark mode"
   },
   "budgets": {
+    "notes": "Notes (optional)",
     "title": "Budgets",
     "add": "Add Budget",
     "edit": "Edit Budget",

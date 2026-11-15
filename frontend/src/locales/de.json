@@ -1334,6 +1334,7 @@
     "darkMode": "Dunkler Modus"
   },
   "budgets": {
+    "notes": "Notizen (optional)",
     "title": "Budgets",
     "add": "Budget hinzufügen",
     "edit": "Budget bearbeiten",

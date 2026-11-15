@@ -49,6 +49,7 @@ async def test_create_budget_defaults_non_recurring(client, auth_headers, test_c
     )
     assert response.status_code == 201
     data = response.json()
+    assert data["notes"] is None
     assert data["is_recurring"] is False
     assert float(data["amount"]) == 500.0
 
@@ -311,3 +312,64 @@ async def test_delete_recurring_previous_takes_effect(client, auth_headers, test
     cat_budgets2 = [b for b in list_resp2.json() if b["category_id"] == str(cat.id)]
     assert len(cat_budgets2) == 1
     assert float(cat_budgets2[0]["amount"]) == 100.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("notes", [None, "", "Árvíztűrő tükörfúrógép\n日本語 العربية 😀", "界" * 2000, "😀" * 2000])
+async def test_budget_notes_round_trip(client, auth_headers, test_categories, notes):
+    response = await client.post(
+        "/api/budgets",
+        json={"category_id": str(test_categories[0].id), "amount": 500,
+              "month": _current_month_str(), "notes": notes},
+        headers=auth_headers,
+    )
+    assert response.status_code == 201
+    budget = response.json()
+    assert budget["notes"] == notes
+    listed = await client.get("/api/budgets", params={"month": _current_month_str()}, headers=auth_headers)
+    assert next(row for row in listed.json() if row["id"] == budget["id"])["notes"] == notes
+
+    # Amount-only clients must not erase notes.
+    updated = await client.patch(f"/api/budgets/{budget['id']}", json={"amount": 600}, headers=auth_headers)
+    assert updated.status_code == 200
+    assert updated.json()["notes"] == notes
+    updated = await client.patch(f"/api/budgets/{budget['id']}", json={"notes": "新しいメモ"}, headers=auth_headers)
+    assert updated.status_code == 200
+    assert updated.json()["notes"] == "新しいメモ"
+    cleared = await client.patch(f"/api/budgets/{budget['id']}", json={"notes": None}, headers=auth_headers)
+    assert cleared.status_code == 200
+    assert cleared.json()["notes"] is None
+
+
+@pytest.mark.asyncio
+async def test_budget_notes_reject_over_limit(client, auth_headers, test_categories):
+    payload = {"category_id": str(test_categories[0].id), "amount": 500, "month": _current_month_str()}
+    rejected = await client.post("/api/budgets", json={**payload, "notes": "😀" * 2001}, headers=auth_headers)
+    assert rejected.status_code == 422
+    created = await client.post("/api/budgets", json={**payload, "notes": "Keep me"}, headers=auth_headers)
+    budget_id = created.json()["id"]
+    rejected = await client.patch(f"/api/budgets/{budget_id}", json={"notes": "界" * 2001}, headers=auth_headers)
+    assert rejected.status_code == 422
+    listed = await client.get("/api/budgets", headers=auth_headers)
+    assert next(row for row in listed.json() if row["id"] == budget_id)["notes"] == "Keep me"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("patch", [{"amount": 600}, {"notes": "次月のメモ"}, {"notes": None}])
+async def test_recurring_budget_notes_effective_month(client, auth_headers, test_categories, patch):
+    created = await client.post(
+        "/api/budgets",
+        json={"category_id": str(test_categories[0].id), "amount": 400,
+              "month": _current_month_str(), "is_recurring": True, "notes": "Original note"},
+        headers=auth_headers,
+    )
+    original = created.json()
+    updated = await client.patch(
+        f"/api/budgets/{original['id']}",
+        json={**patch, "effective_month": _next_month_str()}, headers=auth_headers,
+    )
+    assert updated.status_code == 200
+    assert updated.json()["id"] != original["id"]
+    assert updated.json()["notes"] == patch.get("notes", "Original note")
+    listed = await client.get("/api/budgets", params={"month": _current_month_str()}, headers=auth_headers)
+    assert next(row for row in listed.json() if row["id"] == original["id"])["notes"] == "Original note"

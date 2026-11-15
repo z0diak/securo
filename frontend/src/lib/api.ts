@@ -1229,11 +1229,11 @@ export const budgets = {
     const { data } = await api.get('/budgets', { params: { month } })
     return data
   },
-  create: async (budget: { category_id: string; amount: number; month: string; is_recurring?: boolean }): Promise<Budget> => {
+  create: async (budget: { category_id: string; amount: number; month: string; is_recurring?: boolean; notes?: string | null }): Promise<Budget> => {
     const { data } = await api.post('/budgets', budget)
     return data
   },
-  update: async (id: string, budget: { amount?: number }): Promise<Budget> => {
+  update: async (id: string, budget: { amount?: number; notes?: string | null }): Promise<Budget> => {
     const { data } = await api.patch(`/budgets/${id}`, budget)
     return data
   },

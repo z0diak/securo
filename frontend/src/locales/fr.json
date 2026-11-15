@@ -1334,6 +1334,7 @@
     "darkMode": "Mode sombre"
   },
   "budgets": {
+    "notes": "Notes (facultatif)",
     "title": "Budgets",
     "add": "Ajouter un budget",
     "edit": "Modifier le budget",

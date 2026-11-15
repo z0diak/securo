@@ -1397,6 +1397,7 @@
     "darkMode": "Tmavý režim"
   },
   "budgets": {
+    "notes": "Poznámky (voliteľné)",
     "title": "Rozpočty",
     "add": "Pridať rozpočet",
     "edit": "Upraviť rozpočet",
