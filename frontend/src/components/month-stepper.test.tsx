@@ -101,4 +101,20 @@ describe('MonthStepper', () => {
 
     expect(screen.getByTitle(/September 2026/)).toBeInTheDocument()
   })
+
+  it('disables stepping past maxMonth', () => {
+    renderWithProviders(
+      <MonthStepper
+        value="2026-06"
+        onChange={vi.fn()}
+        locale="en-US"
+        prevLabel="Previous month"
+        nextLabel="Next month"
+        maxMonth="2026-06"
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Next month' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Previous month' })).toBeEnabled()
+  })
 })

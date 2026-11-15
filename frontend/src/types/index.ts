@@ -1061,6 +1061,45 @@ export interface CategorySpendingRow {
   periods: Record<string, CategorySpendingPeriodValue>
 }
 
+export interface MonthlyCategoryRow {
+  category_id: string
+  category_name: string
+  category_icon: string
+  category_color: string
+  group_id: string | null
+  group_name: string | null
+  actual_amount: number
+  budget_amount: number | null
+  variance_amount: number | null
+}
+
+export interface MonthlyCategoryGroup {
+  group_id: string | null
+  group_name: string | null
+  actual_amount: number
+  budget_amount: number | null
+  rows: MonthlyCategoryRow[]
+}
+
+export interface MonthlyCategorySection {
+  total_amount: number
+  budget_amount: number | null
+  budgeted_actual_amount: number
+  unbudgeted_actual_amount: number
+  groups: MonthlyCategoryGroup[]
+}
+
+export interface MonthlyCategoryReportResponse {
+  month: string
+  start: string
+  end: string
+  currency: string
+  is_current_month: boolean
+  expenses: MonthlyCategorySection
+  income: MonthlyCategorySection
+  net_amount: number
+}
+
 export interface CategorySpendingMatrixResponse {
   periods: CategorySpendingPeriod[]
   rows: CategorySpendingRow[]

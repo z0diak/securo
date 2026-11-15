@@ -2097,6 +2097,7 @@
     "pickCustomRange": "Vyberte dátum začiatku a konca",
     "loadError": "Nepodarilo sa načítať prehľad",
     "categorySpending": "Výdavky podľa kategórie",
+    "monthlyCategory": "Mesačný prehľad",
     "budgetVariance": "Odchýlka od rozpočtu",
     "averagePerMonth": "Priemer za mesiac",
     "standardDeviation": "Štandardná odchýlka",
@@ -2119,7 +2120,23 @@
     "clearCategory": "Odstrániť {{category}}",
     "average": "Priemer",
     "drillDownCategory": "{{category}} — {{month}}",
-    "overBudget": "Nad rozpočtom"
+    "overBudget": "Nad rozpočtom",
+    "monthly": {
+      "net": "Netto",
+      "monthToDate": "Mesiac doteraz",
+      "budget": "Rozpočet",
+      "budgetOf": "rozpočet {{amount}}",
+      "left": "zostáva {{amount}}",
+      "overBy": "{{amount}} nad",
+      "unbudgeted": "+{{amount}} mimo rozpočtu",
+      "noBudgets": "Pre tento mesiac nie sú rozpočty",
+      "noIncome": "Žiadne príjmy v tomto mesiaci",
+      "noExpenses": "Žiadne výdavky v tomto mesiaci",
+      "noActivity": "Žiadne transakcie v {{month}}",
+      "ungrouped": "Bez skupiny",
+      "previousMonth": "Predchádzajúci mesiac",
+      "nextMonth": "Nasledujúci mesiac"
+    }
   },
   "payees": {
     "noPayeeFound": "Príjemca sa nenašiel.",

@@ -1986,6 +1986,7 @@
     "pickCustomRange": "Choisir une date de début et de fin",
     "loadError": "Échec du chargement du rapport",
     "categorySpending": "Dépenses par catégorie",
+    "monthlyCategory": "Bilan mensuel",
     "budgetVariance": "Écart budgétaire",
     "averagePerMonth": "Moyenne par mois",
     "standardDeviation": "Écart-type",
@@ -2008,7 +2009,23 @@
     "clearCategory": "Retirer {{category}}",
     "average": "Moyenne",
     "drillDownCategory": "{{category}} — {{month}}",
-    "overBudget": "Au-dessus du budget"
+    "overBudget": "Au-dessus du budget",
+    "monthly": {
+      "net": "Net",
+      "monthToDate": "Mois en cours",
+      "budget": "Budget",
+      "budgetOf": "budget {{amount}}",
+      "left": "{{amount}} restant",
+      "overBy": "{{amount}} de dépassement",
+      "unbudgeted": "+{{amount}} hors budget",
+      "noBudgets": "Aucun budget défini pour ce mois",
+      "noIncome": "Aucun revenu ce mois-ci",
+      "noExpenses": "Aucune dépense ce mois-ci",
+      "noActivity": "Aucune transaction en {{month}}",
+      "ungrouped": "Sans groupe",
+      "previousMonth": "Mois précédent",
+      "nextMonth": "Mois suivant"
+    }
   },
   "payees": {
     "noPayeeFound": "Aucun bénéficiaire trouvé.",

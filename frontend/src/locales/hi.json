@@ -1985,6 +1985,7 @@
     "pickCustomRange": "प्रारंभ और समाप्ति तिथि चुनें",
     "loadError": "रिपोर्ट लोड करने में विफल",
     "categorySpending": "श्रेणी के अनुसार खर्च",
+    "monthlyCategory": "मासिक विवरण",
     "budgetVariance": "बजट से अंतर",
     "averagePerMonth": "मासिक औसत",
     "standardDeviation": "मानक विचलन",
@@ -2007,7 +2008,23 @@
     "clearCategory": "{{category}} हटाएँ",
     "average": "औसत",
     "drillDownCategory": "{{category}} — {{month}}",
-    "overBudget": "बजट से अधिक"
+    "overBudget": "बजट से अधिक",
+    "monthly": {
+      "net": "शुद्ध",
+      "monthToDate": "माह में अब तक",
+      "budget": "बजट",
+      "budgetOf": "बजट {{amount}}",
+      "left": "{{amount}} शेष",
+      "overBy": "{{amount}} अधिक",
+      "unbudgeted": "+{{amount}} बिना बजट",
+      "noBudgets": "इस माह के लिए कोई बजट नहीं",
+      "noIncome": "इस माह कोई आय नहीं",
+      "noExpenses": "इस माह कोई खर्च नहीं",
+      "noActivity": "{{month}} में कोई लेन-देन नहीं",
+      "ungrouped": "बिना समूह",
+      "previousMonth": "पिछला माह",
+      "nextMonth": "अगला माह"
+    }
   },
   "payees": {
     "noPayeeFound": "कोई प्राप्तकर्ता नहीं मिला।",

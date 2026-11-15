@@ -2070,6 +2070,7 @@
     "pickCustomRange": "Wybierz datę początkową i końcową",
     "loadError": "Nie udało się załadować raportu",
     "categorySpending": "Wydatki według kategorii",
+    "monthlyCategory": "Podsumowanie miesiąca",
     "budgetVariance": "Odchylenie od budżetu",
     "averagePerMonth": "Średnio na miesiąc",
     "standardDeviation": "Odch. std.",
@@ -2092,7 +2093,23 @@
     "clearCategory": "Usuń {{category}}",
     "average": "Średnia",
     "drillDownCategory": "{{category}} — {{month}}",
-    "overBudget": "Powyżej budżetu"
+    "overBudget": "Powyżej budżetu",
+    "monthly": {
+      "net": "Netto",
+      "monthToDate": "Miesiąc do dziś",
+      "budget": "Budżet",
+      "budgetOf": "budżet {{amount}}",
+      "left": "zostało {{amount}}",
+      "overBy": "{{amount}} ponad",
+      "unbudgeted": "+{{amount}} poza budżetem",
+      "noBudgets": "Brak budżetów na ten miesiąc",
+      "noIncome": "Brak przychodów w tym miesiącu",
+      "noExpenses": "Brak wydatków w tym miesiącu",
+      "noActivity": "Brak transakcji w {{month}}",
+      "ungrouped": "Bez grupy",
+      "previousMonth": "Poprzedni miesiąc",
+      "nextMonth": "Następny miesiąc"
+    }
   },
   "payees": {
     "noPayeeFound": "Nie znaleziono odbiorcy.",

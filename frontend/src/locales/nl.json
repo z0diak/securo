@@ -1987,6 +1987,7 @@
     "pickCustomRange": "Kies een start- en einddatum",
     "loadError": "Rapport laden mislukt",
     "categorySpending": "Uitgaven per categorie",
+    "monthlyCategory": "Maandoverzicht",
     "budgetVariance": "Budgetafwijking",
     "averagePerMonth": "Gemiddeld per maand",
     "standardDeviation": "Standaardafwijking",
@@ -2009,7 +2010,23 @@
     "clearCategory": "{{category}} verwijderen",
     "average": "Gemiddelde",
     "drillDownCategory": "{{category}} — {{month}}",
-    "overBudget": "Boven budget"
+    "overBudget": "Boven budget",
+    "monthly": {
+      "net": "Netto",
+      "monthToDate": "Maand tot nu",
+      "budget": "Budget",
+      "budgetOf": "budget {{amount}}",
+      "left": "{{amount}} over",
+      "overBy": "{{amount}} te veel",
+      "unbudgeted": "+{{amount}} zonder budget",
+      "noBudgets": "Geen budgetten voor deze maand",
+      "noIncome": "Geen inkomsten deze maand",
+      "noExpenses": "Geen uitgaven deze maand",
+      "noActivity": "Geen transacties in {{month}}",
+      "ungrouped": "Zonder groep",
+      "previousMonth": "Vorige maand",
+      "nextMonth": "Volgende maand"
+    }
   },
   "payees": {
     "noPayeeFound": "Geen begunstigde gevonden.",

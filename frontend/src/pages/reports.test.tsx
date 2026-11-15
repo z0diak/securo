@@ -11,6 +11,7 @@ const api = vi.hoisted(() => ({
     incomeExpenses: vi.fn(),
     cashFlow: vi.fn(),
     categorySpending: vi.fn(),
+    monthlyCategory: vi.fn(),
   },
 }))
 
@@ -28,6 +29,8 @@ vi.mock('@/contexts/auth-context', () => ({
 vi.mock('@/contexts/collection-filter-context', () => ({
   useCollectionFilter: () => ({ activeAccountIds: null, activeWalletIds: null }),
 }))
+
+vi.mock('@/hooks/use-timezone', () => ({ useEffectiveTimezone: () => undefined }))
 
 vi.mock('@/hooks/use-privacy-mode', () => ({
   usePrivacyMode: () => ({ mask: (value: string) => value, privacyMode: false, MASK: '••••' }),
@@ -50,6 +53,12 @@ beforeEach(() => {
   api.reports.netWorth.mockResolvedValue(emptyReport('net_worth'))
   api.reports.incomeExpenses.mockResolvedValue(emptyReport('income_expenses'))
   api.reports.cashFlow.mockResolvedValue(emptyReport('cash_flow'))
+  api.reports.monthlyCategory.mockImplementation(async (month: string) => ({
+    month, start: `${month}-01`, end: `${month}-28`, currency: 'USD', is_current_month: false,
+    expenses: { total_amount: 0, budget_amount: null, budgeted_actual_amount: 0, unbudgeted_actual_amount: 0, groups: [] },
+    income: { total_amount: 0, budget_amount: null, budgeted_actual_amount: 0, unbudgeted_actual_amount: 0, groups: [] },
+    net_amount: 0,
+  }))
   api.reports.categorySpending.mockResolvedValue({ periods: [], rows: [], meta: { currency: 'USD', interval: 'monthly', type: 'expenses' } })
 })
 
@@ -267,5 +276,23 @@ describe('Category spending report integration', () => {
     await user.click(screen.getByRole('button', { name: t('common.retry') }))
     await waitFor(() => expect(screen.queryByText(t('reports.loadError'))).not.toBeInTheDocument())
     expect(api.reports.categorySpending).toHaveBeenCalledTimes(2)
+  })
+})
+
+
+describe('Monthly breakdown report integration', () => {
+  it('opens on the current month and steps between months', async () => {
+    const { user } = renderWithProviders(<ReportsPage />)
+    await user.click(screen.getByRole('button', { name: t('reports.monthlyCategory') }))
+    await waitFor(() => expect(api.reports.monthlyCategory).toHaveBeenCalledWith('2026-09'))
+    expect(screen.queryByRole('button', { name: t('reports.range1y') })).not.toBeInTheDocument()
+    const next = screen.getByRole('button', { name: t('reports.monthly.nextMonth') })
+    expect(next).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: t('reports.monthly.previousMonth') }))
+    await waitFor(() => expect(api.reports.monthlyCategory).toHaveBeenLastCalledWith('2026-08'))
+    expect(next).toBeEnabled()
+    await user.click(next)
+    await waitFor(() => expect(next).toBeDisabled())
+    expect(api.reports.monthlyCategory).toHaveBeenLastCalledWith('2026-09')
   })
 })

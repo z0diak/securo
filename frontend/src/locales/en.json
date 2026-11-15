@@ -1985,6 +1985,7 @@
     "pickCustomRange": "Pick a start and end date",
     "loadError": "Failed to load report",
     "categorySpending": "Category Spending",
+    "monthlyCategory": "Monthly Breakdown",
     "budgetVariance": "Budget variance",
     "averagePerMonth": "Average / month",
     "standardDeviation": "Std. deviation",
@@ -2007,7 +2008,23 @@
     "clearCategory": "Remove {{category}}",
     "average": "Average",
     "drillDownCategory": "{{category}} — {{month}}",
-    "overBudget": "Over budget"
+    "overBudget": "Over budget",
+    "monthly": {
+      "net": "Net",
+      "monthToDate": "Month to date",
+      "budget": "Budget",
+      "budgetOf": "budget {{amount}}",
+      "left": "{{amount}} left",
+      "overBy": "{{amount}} over",
+      "unbudgeted": "+{{amount}} unbudgeted",
+      "noBudgets": "No budgets set for this month",
+      "noIncome": "No income this month",
+      "noExpenses": "No spending this month",
+      "noActivity": "No transactions in {{month}}",
+      "ungrouped": "Ungrouped",
+      "previousMonth": "Previous month",
+      "nextMonth": "Next month"
+    }
   },
   "payees": {
     "noPayeeFound": "No payee found.",

@@ -7,7 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_async_session
 from app.core.workspace_context import WorkspaceContext, current_workspace
-from app.schemas.report import CategorySpendingMatrixResponse, ReportResponse
+from app.schemas.report import (
+    CategorySpendingMatrixResponse,
+    MonthlyCategoryReportResponse,
+    ReportResponse,
+)
 from app.services import report_service
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -160,6 +164,24 @@ async def get_category_spending(
         period=period,
         report_type=type,
     )
+
+
+@router.get("/monthly-category", response_model=MonthlyCategoryReportResponse)
+async def get_monthly_category(
+    month: str = Query(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
+    ctx: WorkspaceContext = Depends(current_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    try:
+        return await report_service.get_monthly_category_report(
+            session,
+            ctx.workspace.id,
+            ctx.user_id,
+            date.fromisoformat(f"{month}-01"),
+            ctx.user.primary_currency,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/cash-flow", response_model=ReportResponse)

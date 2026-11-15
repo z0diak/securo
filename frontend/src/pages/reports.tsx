@@ -24,17 +24,21 @@ import { extractApiError } from '@/lib/api-errors'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { DateRangePicker } from '@/components/ui/date-range-picker'
+import { MonthStepper } from '@/components/month-stepper'
 import { PageHeader } from '@/components/page-header'
 import { CashflowSankey } from '@/components/reports/CashflowSankey'
 import { CategorySpendingSmallMultiples } from '@/components/reports/CategorySpendingSmallMultiples'
+import { MonthlyCategoryReport } from '@/components/reports/MonthlyCategoryReport'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 import { useCollectionFilter } from '@/contexts/collection-filter-context'
 import { TransactionDrillDown, type DrillDownFilter } from '@/components/transaction-drill-down'
 import { TransactionEditHost } from '@/components/transaction-edit-host'
-import type { CategorySpendingMatrixResponse, CategoryTrendItem, ReportResponse, Transaction } from '@/types'
+import type { CategorySpendingMatrixResponse, CategoryTrendItem, MonthlyCategoryReportResponse, ReportResponse, Transaction } from '@/types'
 import { formatCurrency } from '@/lib/format'
-import { localDateString } from '@/lib/date-utils'
+import { localDateString, todayInTimezone } from '@/lib/date-utils'
+import { monthLabel } from '@/lib/month-utils'
+import { useEffectiveTimezone } from '@/hooks/use-timezone'
 
 // A small qualitative palette of well-separated hues for the composition
 // detail ring. Capped to a handful of slices, distinct colours make each
@@ -190,6 +194,12 @@ const REPORT_TABS: ReportTab[] = [
     supportsCustomRange: false, fallbackRangeKey: '1y', fallbackInterval: 'monthly',
   },
   {
+    // Single-month view: the header swaps range/interval for a month stepper.
+    key: 'monthly_category', labelKey: 'reports.monthlyCategory', enabled: true,
+    rangeOptions: HISTORICAL_RANGE_OPTIONS, intervalOptions: [{ key: 'monthly', value: 'monthly' }],
+    supportsCustomRange: false, fallbackRangeKey: '1y', fallbackInterval: 'monthly',
+  },
+  {
     key: 'cash_flow', labelKey: 'reports.cashFlow', enabled: true,
     rangeOptions: FORWARD_RANGE_OPTIONS, intervalOptions: CASH_FLOW_INTERVAL_OPTIONS,
     supportsCustomRange: false, fallbackRangeKey: '6m', fallbackInterval: 'daily',
@@ -202,7 +212,7 @@ const REPORT_TABS: ReportTab[] = [
 ]
 
 export default function ReportsPage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { mask, privacyMode, MASK } = usePrivacyMode()
   const { user } = useAuth()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
@@ -227,6 +237,9 @@ export default function ReportsPage() {
   const [drillDown, setDrillDown] = useState<DrillDownFilter | null>(null)
   const [editingTx, setEditingTx] = useState<Transaction | null>(null)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  // Null follows the current month, which waits on the workspace timezone.
+  const [pickedMonth, setPickedMonth] = useState<string | null>(null)
+  const [monthlySelectedKey, setMonthlySelectedKey] = useState<string | null>(null)
   // Active Collection filter (issue #105): scope all report tabs to its
   // accounts; net worth also includes the collection's wallets' assets.
   const { activeAccountIds, activeWalletIds } = useCollectionFilter()
@@ -241,6 +254,13 @@ export default function ReportsPage() {
 
   const isCashFlow = activeTab === 'cash_flow'
   const isCategorySpending = activeTab === 'category_spending'
+  const isMonthlyCategory = activeTab === 'monthly_category'
+  // The server rejects months after its own today, so step by that zone's day.
+  const today = todayInTimezone(useEffectiveTimezone())
+  const latestMonth = today.slice(0, 7)
+  const reportMonth = pickedMonth && pickedMonth < latestMonth ? pickedMonth : latestMonth
+  const uiLocale = i18n.resolvedLanguage ?? i18n.language
+  const reportMonthLabel = monthLabel(reportMonth, uiLocale).replace(/^\p{L}/u, (c) => c.toUpperCase())
   // The Money Map (Sankey) tab is driven by the same income/expenses
   // composition, aggregated over the selected historical range.
   const isMoneyMap = activeTab === 'money_map'
@@ -275,12 +295,23 @@ export default function ReportsPage() {
   const apiStart = hasCustomRange ? customFrom : undefined
   const apiEnd = hasCustomRange ? customTo : undefined
 
+  const closeDrillDown = () => {
+    setDrillDown(null)
+    setMonthlySelectedKey(null)
+  }
+
+  const selectReportMonth = (month: string) => {
+    setPickedMonth(month)
+    closeDrillDown()
+  }
+
   const handleSelectTab = (key: string) => {
     const nextTab = REPORT_TABS.find((tab) => tab.key === key) ?? REPORT_TABS[0]
     setActiveTab(key)
     setCompositionView(key === 'net_worth' ? 'netWorth' : 'net')
     setSparklinePage(0)
     setSelectedDate(null)
+    closeDrillDown()
     // Clamp the range/interval preset to what the new tab supports.
     const stillValid =
       (rangeKey === CUSTOM_RANGE_KEY && nextTab.supportsCustomRange) ||
@@ -302,7 +333,7 @@ export default function ReportsPage() {
           ? reports.incomeExpenses(months, interval, acctIds, period, days, apiStart, apiEnd)
           : reports.netWorth(months, interval, acctIds, walletIds, period, apiStart, apiEnd),
     // Only request a custom report with both committed endpoints.
-    enabled: currentTab.enabled && !isCategorySpending && !(noAccounts && activeTab !== 'net_worth') && (!isCustomRange || hasCustomRange),
+    enabled: currentTab.enabled && !isCategorySpending && !isMonthlyCategory && !(noAccounts && activeTab !== 'net_worth') && (!isCustomRange || hasCustomRange),
   })
 
   const { data: categoryData, isLoading: categoryLoading, isError: categoryError, error: categoryQueryError, refetch: refetchCategory } = useQuery<CategorySpendingMatrixResponse>({
@@ -310,7 +341,12 @@ export default function ReportsPage() {
     queryFn: () => reports.categorySpending(months, 'monthly', period),
     enabled: isCategorySpending && !noAccounts,
   })
-  const reportError = isCategorySpending ? categoryError : isError
+  const { data: monthlyData, isLoading: monthlyLoading, isError: monthlyError, error: monthlyQueryError, refetch: refetchMonthly } = useQuery<MonthlyCategoryReportResponse>({
+    queryKey: ['reports', 'monthly-category', reportMonth],
+    queryFn: () => reports.monthlyCategory(reportMonth),
+    enabled: isMonthlyCategory && !noAccounts,
+  })
+  const reportError = isCategorySpending ? categoryError : isMonthlyCategory ? monthlyError : isError
 
   const summary = data?.summary
   const trend = data?.trend ?? []
@@ -604,6 +640,17 @@ export default function ReportsPage() {
                 </span>
               </div>
             )}
+            {isMonthlyCategory ? (
+              <MonthStepper
+                value={reportMonth}
+                onChange={selectReportMonth}
+                locale={uiLocale}
+                maxMonth={latestMonth}
+                prevLabel={t('reports.monthly.previousMonth')}
+                nextLabel={t('reports.monthly.nextMonth')}
+              />
+            ) : (
+            <>
             <div className="flex items-center rounded-lg border border-border bg-card overflow-hidden">
               {rangeOptions.map((opt) => (
                 <button
@@ -654,6 +701,8 @@ export default function ReportsPage() {
                 </button>
               ))}
             </div>
+            </>
+            )}
           </div>
         }
       />
@@ -691,12 +740,12 @@ export default function ReportsPage() {
           <div className="flex items-center gap-2.5 min-w-0">
             <AlertCircle size={16} className="shrink-0 text-rose-600 dark:text-rose-400" />
             <span className="text-sm text-rose-900 dark:text-rose-200 truncate">
-              {extractApiError(isCategorySpending ? categoryQueryError : error, t('reports.loadError'))}
+              {extractApiError(isCategorySpending ? categoryQueryError : isMonthlyCategory ? monthlyQueryError : error, t('reports.loadError'))}
             </span>
           </div>
           <button
             type="button"
-            onClick={() => isCategorySpending ? refetchCategory() : refetch()}
+            onClick={() => isCategorySpending ? refetchCategory() : isMonthlyCategory ? refetchMonthly() : refetch()}
             className="shrink-0 text-sm font-semibold text-rose-600 dark:text-rose-400 hover:underline"
           >
             {t('common.retry')}
@@ -704,7 +753,26 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {!reportError && (isCategorySpending ? (
+      {!reportError && (isMonthlyCategory ? (
+        noAccounts ? (
+          <p className="text-muted-foreground text-sm text-center py-16">{t('reports.noData')}</p>
+        ) : (
+          <MonthlyCategoryReport
+            data={monthlyData}
+            isLoading={monthlyLoading}
+            monthLabel={reportMonthLabel}
+            today={today}
+            selectedKey={monthlySelectedKey}
+            onDrillDown={(filter, key) => {
+              setDrillDown(filter)
+              setMonthlySelectedKey(key)
+            }}
+            formatCurrency={(value, currency = userCurrency) => formatCurrency(value, currency, locale)}
+            mask={mask}
+            t={t}
+          />
+        )
+      ) : isCategorySpending ? (
         <CategorySpendingSmallMultiples
           data={categoryData}
           isLoading={categoryLoading}
@@ -1622,7 +1690,7 @@ export default function ReportsPage() {
       {drillDown && (
         <TransactionDrillDown
           filter={drillDown}
-          onClose={() => setDrillDown(null)}
+          onClose={closeDrillDown}
           onTransactionClick={setEditingTx}
         />
       )}
