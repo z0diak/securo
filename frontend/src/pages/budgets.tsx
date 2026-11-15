@@ -68,6 +68,9 @@ export default function BudgetsPage() {
   const monthParam = `${selectedMonth}-01`
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Budget | null>(null)
+  const [notes, setNotes] = useState('')
+  const notesLength = Array.from(notes).length
+  const notesTooLong = notesLength > 2000
   const [deletingBudget, setDeletingBudget] = useState<Budget | null>(null)
 
   const { data: budgetsList } = useQuery({
@@ -93,7 +96,7 @@ export default function BudgetsPage() {
   })
 
   const createMutation = useMutation({
-    mutationFn: (data: { category_id: string; amount: number; month: string; is_recurring?: boolean }) =>
+    mutationFn: (data: { category_id: string; amount: number; month: string; is_recurring?: boolean; notes?: string | null }) =>
       budgetsApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['budgets'] })
@@ -104,8 +107,8 @@ export default function BudgetsPage() {
   })
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, amount }: { id: string; amount: number }) =>
-      budgetsApi.update(id, { amount }),
+    mutationFn: ({ id, amount, notes }: { id: string; amount: number; notes: string | null }) =>
+      budgetsApi.update(id, { amount, notes }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['budgets'] })
       setDialogOpen(false)
@@ -197,14 +200,14 @@ export default function BudgetsPage() {
           title={t('budgets.title')}
           action={
             canWrite ? (
-              <Button size="sm" className="gap-1.5 h-8" onClick={() => { setEditing(null); setDialogOpen(true) }}>
+              <Button size="sm" className="gap-1.5 h-8" onClick={() => { setEditing(null); setNotes(''); setDialogOpen(true) }}>
                 <Plus size={13} /> {t('budgets.add')}
               </Button>
             ) : undefined
           }
         />
         {budgetsList && budgetsList.length > 0 ? (
-          <table className="w-full">
+          <table className="w-full table-fixed">
             <thead>
               <tr className="border-b border-border">
                 <th className={`${TH} pl-4 sm:pl-5 text-left`}>{t('budgets.category')}</th>
@@ -224,6 +227,9 @@ export default function BudgetsPage() {
                         </span>
                       )}
                     </span>
+                    {budget.notes && (
+                      <p dir="auto" className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere] pr-3 text-xs font-normal text-muted-foreground">{budget.notes}</p>
+                    )}
                   </td>
                   <td className="py-3 text-sm font-semibold tabular-nums text-foreground">{mask(formatCurrency(budget.amount, userCurrency, locale))}</td>
                   {canWrite && (
@@ -231,7 +237,7 @@ export default function BudgetsPage() {
                       <div className="flex items-center justify-end gap-1">
                         <button
                           className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors"
-                          onClick={() => { setEditing(budget); setDialogOpen(true) }}
+                          onClick={() => { setEditing(budget); setNotes(budget.notes ?? ''); setDialogOpen(true) }}
                           aria-label={t('common.edit')}
                           title={t('common.edit')}
                         >
@@ -259,7 +265,7 @@ export default function BudgetsPage() {
       </SectionCard>
 
       <Dialog open={dialogOpen} onOpenChange={() => { setDialogOpen(false); setEditing(null) }}>
-        <DialogContent>
+        <DialogContent aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>{editing ? t('budgets.edit') : t('budgets.add')}</DialogTitle>
           </DialogHeader>
@@ -267,17 +273,20 @@ export default function BudgetsPage() {
             key={editing?.id ?? 'new'}
             onSubmit={(e) => {
               e.preventDefault()
+              if (notesTooLong) return
               const formData = new FormData(e.currentTarget)
               if (editing) {
                 updateMutation.mutate({
                   id: editing.id,
                   amount: parseFloat(formData.get('amount') as string),
+                  notes: notes || null,
                 })
               } else {
                 const isRecurring = formData.get('is_recurring') === 'on'
                 createMutation.mutate({
                   category_id: formData.get('category_id') as string,
                   amount: parseFloat(formData.get('amount') as string),
+                  notes: notes || null,
                   month: monthParam,
                   is_recurring: isRecurring,
                 })
@@ -323,11 +332,28 @@ export default function BudgetsPage() {
                 required
               />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="budget-notes">{t('budgets.notes')}</Label>
+              <textarea
+                id="budget-notes"
+                name="notes"
+                dir="auto"
+                rows={3}
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                aria-invalid={notesTooLong}
+                aria-describedby="budget-notes-count"
+                className="flex w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <p id="budget-notes-count" className={`text-right text-xs tabular-nums ${notesTooLong ? 'text-destructive' : 'text-muted-foreground'}`}>
+                {notesLength} / 2000
+              </p>
+            </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => { setDialogOpen(false); setEditing(null) }}>
                 {t('common.cancel')}
               </Button>
-              <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
+              <Button type="submit" disabled={notesTooLong || createMutation.isPending || updateMutation.isPending}>
                 {t('common.save')}
               </Button>
             </DialogFooter>

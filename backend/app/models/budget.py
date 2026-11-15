@@ -28,6 +28,7 @@ class Budget(Base):
     )
     category_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("categories.id"))
     amount: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=2))
+    notes: Mapped[Optional[str]] = mapped_column(String(2000), nullable=True)
     month: Mapped[date] = mapped_column(Date)  # First day of month
     is_recurring: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     currency: Mapped[Optional[str]] = mapped_column(String(3), server_default="USD", nullable=True)

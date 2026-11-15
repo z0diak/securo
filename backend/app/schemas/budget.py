@@ -3,7 +3,7 @@ from datetime import date as _Date
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class BudgetCreate(BaseModel):
@@ -11,11 +11,13 @@ class BudgetCreate(BaseModel):
     amount: Decimal
     month: _Date  # First day of month
     is_recurring: bool = False
+    notes: Optional[str] = Field(default=None, max_length=2000)
 
 
 class BudgetUpdate(BaseModel):
     amount: Optional[Decimal] = None
     effective_month: Optional[_Date] = None
+    notes: Optional[str] = Field(default=None, max_length=2000)
 
 
 class BudgetRead(BaseModel):
@@ -25,6 +27,7 @@ class BudgetRead(BaseModel):
     amount: Decimal
     month: _Date
     is_recurring: bool
+    notes: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

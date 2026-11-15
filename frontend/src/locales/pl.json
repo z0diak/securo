@@ -1382,6 +1382,7 @@
     "darkMode": "Tryb ciemny"
   },
   "budgets": {
+    "notes": "Notatki (opcjonalnie)",
     "title": "Budżety",
     "add": "Dodaj budżet",
     "edit": "Edytuj budżet",

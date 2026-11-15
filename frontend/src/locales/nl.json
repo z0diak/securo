@@ -1335,6 +1335,7 @@
     "darkMode": "Donkere modus"
   },
   "budgets": {
+    "notes": "Notities (optioneel)",
     "title": "Budgetten",
     "add": "Budget toevoegen",
     "edit": "Budget bewerken",

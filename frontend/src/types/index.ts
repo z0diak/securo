@@ -743,6 +743,7 @@ export interface BalanceHistory {
 }
 
 export interface Budget {
+  notes: string | null
   id: string
   user_id: string
   category_id: string
